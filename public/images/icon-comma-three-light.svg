@@ -1,1 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 32 21"><path fill="#fff" d="M32 3a3 3 0 0 0-3-3H3a3 3 0 0 0-3 3v10.38a3 3 0 0 0 3 3h6.75c.26 0 1.32.1 2.25 1.03 1.65 1.67 1.91 3.59 4 3.59s2.24-1.93 4-3.59a3.34 3.34 0 0 1 2.2-1.03H29a3 3 0 0 0 3-3z"/><circle cx="16" cy="18" r="1" fill="#000"/><path fill="#000" fill-rule="evenodd" d="M13.58 14c0-.25-.02-.47.01-.67.02-.1.12-.18.2-.24.4-.26.85-.46 1.23-.76a4.86 4.86 0 0 0 2-3.86c0-.46-.17-.58-.56-.4-1.13.52-2.34.22-3-.76-.7-1.06-.6-2.47.25-3.4a2.84 2.84 0 0 1 4.09-.09 3.77 3.77 0 0 1 1.17 2.55 6.87 6.87 0 0 1-4.43 7.29c-.3.12-.6.22-.96.34" clip-rule="evenodd"/></svg>
+<svg version="1.2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 21" width="32" height="21">
+	<defs>
+		<image  width="11" height="12" id="img1" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAsAAAAMCAMAAACDd7esAAAAAXNSR0IB2cksfwAAANhQTFRFFBQUBAQEDQ0NAAAACAgIBQUFBAQEAAAAAQEBBgYGAwMDAAAAAQEBCgoKBQUFAAAACAgIBAQEAQEBCAgIBAQEAgICRkZGDQ0NAQEBCgoKAgICBAQEAgICAQEBBAQEAQEBBAQEAgICBAQEAgICBAQEAgICAgICAgICCwsLCQkJAAAAAQEBBQUFBQUFBgYGCAgIBgYGAQEBDQ0NFBQUAwMDAQEBAQEBAAAAAQEBBAQECgoKAwMDAgICAAAAAQEBAgICBAQEGBgYODg4BgYGBgYGBQUFBQUFCgoKoCaKcwAAAEh0Uk5TDoEXAD1ed//4Uaf+2h9x/Cd92CV00QAf2yC0iuH0UcxnyWnLeNWv1gky+/NOVyQWO90TA5Tv4vjhRgxx0v32uD8CABw5RTEQVtO+kAAAAIRJREFUeJwVjLsKwkAUROew4ANhGxdiBB+opFMQC0t/3MoylZUWgiKKBCFVQFSCuHeKO4fLYRCgGPjRiPyVmrHwnxaV5F8dCJWnlMK7Df0yFOan0RkV6c14+EyY3gcX48kjIbuOOUmZ7czPtZvFPvS6rDjWC9gvyXHr+Mzt7HDamMpW+gPdCx0SKnvPAgAAAABJRU5ErkJggg=="/>
+	</defs>
+	<style>
+		.s0 { fill: #ffffff } 
+		.s1 { fill: #000000 } 
+	</style>
+	<path class="s0" d="m32 3q0-0.6-0.23-1.15-0.23-0.55-0.65-0.97-0.42-0.42-0.97-0.65-0.55-0.23-1.15-0.23h-26q-0.6 0-1.15 0.23-0.55 0.23-0.97 0.65-0.42 0.42-0.65 0.97-0.23 0.55-0.23 1.15v10.38q0 0.6 0.23 1.15 0.23 0.55 0.65 0.97 0.42 0.42 0.97 0.65 0.55 0.23 1.15 0.23h6.75c0.26 0 1.32 0.1 2.25 1.03 1.65 1.67 1.91 3.59 4 3.59 2.09 0 2.24-1.93 4-3.59q0.21-0.23 0.47-0.41 0.25-0.18 0.53-0.31 0.29-0.13 0.59-0.21 0.3-0.08 0.61-0.1h6.8q0.6 0 1.15-0.23 0.55-0.23 0.97-0.65 0.42-0.42 0.65-0.97 0.23-0.55 0.23-1.15z"/>
+	<path fill-rule="evenodd" class="s1" d="m16 19c-0.55 0-1-0.45-1-1 0-0.55 0.45-1 1-1 0.55 0 1 0.45 1 1 0 0.55-0.45 1-1 1z"/>
+	<use id="Background" href="#img1" x="11" y="2"/>
+</svg>
