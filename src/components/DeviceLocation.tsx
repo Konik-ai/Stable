@@ -1,4 +1,4 @@
-import { createResource, createSignal, onMount, onCleanup, Show, type VoidComponent } from 'solid-js'
+import { createEffect, createResource, createSignal, onMount, onCleanup, Show, type VoidComponent } from 'solid-js'
 import { render } from 'solid-js/web'
 import clsx from 'clsx'
 import L from 'leaflet'
@@ -11,6 +11,8 @@ import Card from '~/components/material/Card'
 import type { IconName } from '~/components/material/Icon'
 import IconButton from '~/components/material/IconButton'
 import { getTileUrl } from '~/map'
+import { useMapStylePreference } from '~/map/preferences'
+import MapStylePicker from '~/components/MapStylePicker'
 import { getFullAddress } from '~/map/geocode'
 
 type Location = {
@@ -31,6 +33,7 @@ const DeviceLocation: VoidComponent<DeviceLocationProps> = (props) => {
   let mapRef!: HTMLDivElement
 
   const [map, setMap] = createSignal<L.Map | null>(null)
+  const [mapStyle] = useMapStylePreference()
   const [selectedLocation, setSelectedLocation] = createSignal<Location | null>(null)
   const [showSelectedLocation, setShowSelectedLocation] = createSignal(false)
   const [userPosition, setUserPosition] = createSignal<GeolocationPosition | null>(null)
@@ -38,6 +41,8 @@ const DeviceLocation: VoidComponent<DeviceLocationProps> = (props) => {
     () => props.dongleId,
     (dongleId) => getDeviceLocation(dongleId),
   )
+
+  let tileLayer: L.TileLayer | null = null
 
   onMount(() => {
     navigator.permissions
@@ -51,8 +56,8 @@ const DeviceLocation: VoidComponent<DeviceLocationProps> = (props) => {
       })
       .catch(() => setUserPosition(null))
 
-    const tileUrl = getTileUrl()
-    const tileLayer = L.tileLayer(tileUrl)
+    const tileUrl = getTileUrl(mapStyle())
+    tileLayer = L.tileLayer(tileUrl)
 
     const m = L.map(mapRef, {
       attributionControl: false,
@@ -73,6 +78,12 @@ const DeviceLocation: VoidComponent<DeviceLocationProps> = (props) => {
       observer.disconnect()
       m.remove()
     })
+  })
+
+  createEffect(() => {
+    const styleKey = mapStyle()
+    if (!tileLayer) return
+    tileLayer.setUrl(getTileUrl(styleKey))
   })
 
   const [locationData] = createResource(
@@ -166,6 +177,10 @@ const DeviceLocation: VoidComponent<DeviceLocationProps> = (props) => {
   return (
     <div class="relative">
       <div ref={mapRef} class="h-[240px] w-full !bg-surface-container-low" />
+
+      <div class="absolute left-2 top-2 z-[9999]">
+        <MapStylePicker />
+      </div>
 
       <Show when={!userPosition() && !showSelectedLocation()}>
         <div class="absolute bottom-2 right-2 z-[9999]">
