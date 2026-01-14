@@ -19,6 +19,7 @@ import TopAppBar from '~/components/material/TopAppBar'
 
 import DeviceList from './components/DeviceList'
 import DeviceActivity from './activities/DeviceActivity'
+import LiveViewActivity from './activities/LiveViewActivity'
 import RouteActivity from './activities/RouteActivity'
 import SettingsActivity from './activities/SettingsActivity'
 import BuildInfo from '~/components/BuildInfo'
@@ -113,7 +114,7 @@ const FirstPairActivity: Component = () => {
         <p class="text-md mt-4">If you cannot see a QR code, check the following:</p>
         <ul class="text-md list-disc list-inside">
           <li>Your device is connected to the internet</li>
-          <li>You have installed the latest version of openpilot</li>
+          <li>You have installed the latest version of hoofpilot</li>
         </ul>
         <p class="text-md">
           If you still cannot see a QR code, your device may already be paired to another account. Make sure you have signed in to connect
@@ -177,6 +178,9 @@ const Dashboard: Component<RouteSectionProps> = () => {
                 >
                   <Match when={urlState().dateStr === 'settings' || urlState().dateStr === 'prime'}>
                     <SettingsActivity dongleId={dongleId} />
+                  </Match>
+                  <Match when={urlState().dateStr === 'live'}>
+                    <LiveViewActivity dongleId={dongleId} />
                   </Match>
                   <Match when={urlState().dateStr} keyed>
                     {(dateStr) => (
