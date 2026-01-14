@@ -16,6 +16,14 @@ export const takeSnapshot = (dongleId: string) =>
     }
   >(dongleId, 'takeSnapshot')
 
+export const getSdp = (dongleId: string) => makeAthenaCall<void, { type?: string; sdp?: string; error?: string }>(dongleId, 'getSdp')
+
+export const setSdpAnswer = (dongleId: string, answer: unknown) =>
+  makeAthenaCall<{ answer: unknown }, void>(dongleId, 'setSdpAnswer', { answer })
+
+export const getIce = (dongleId: string) =>
+  makeAthenaCall<void, Array<{ candidate: string; sdpMid?: string; sdpMLineIndex?: number }> | { error: boolean }>(dongleId, 'getIce')
+
 export const makeAthenaCall = async <REQ, RES>(
   dongleId: string,
   method: string,

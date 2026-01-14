@@ -1,8 +1,6 @@
-import { createResource, createSignal, For, Show, Suspense, type VoidComponent } from 'solid-js'
-import { createStore } from 'solid-js/store'
+import { createResource, createSignal, Show, Suspense, type VoidComponent } from 'solid-js'
 import clsx from 'clsx'
 
-import { takeSnapshot } from '~/api/athena'
 import { getDevice, SHARED_DEVICE } from '~/api/devices'
 import { DrawerToggleButton, useDrawerContext } from '~/components/material/Drawer'
 import Icon from '~/components/material/Icon'
@@ -27,52 +25,6 @@ const DeviceActivity: VoidComponent<DeviceActivityProps> = (props) => {
   // TODO: remove this. if we're listing the routes for a device you should always be a user, this is for viewing public routes which are being removed
   const isDeviceUser = () => (device.loading ? true : device.latest?.is_owner || device.latest?.alias !== SHARED_DEVICE)
   const [queueVisible, setQueueVisible] = createSignal(false)
-  const [snapshot, setSnapshot] = createStore<{
-    error: string | null
-    fetching: boolean
-    images: string[]
-  }>({
-    error: null,
-    fetching: false,
-    images: [],
-  })
-
-  const onClickSnapshot = async () => {
-    setSnapshot({ error: null, fetching: true })
-    try {
-      const resp = await takeSnapshot(props.dongleId)
-      const images = [resp.result?.jpegFront, resp.result?.jpegBack].filter((it) => it !== undefined)
-      if (images.length > 0) {
-        setSnapshot('images', images)
-      } else {
-        throw new Error('No images found.')
-      }
-    } catch (err) {
-      let error = (err as Error).message
-      if (error.includes('Device not registered')) {
-        error = 'Device offline'
-      }
-      setSnapshot('error', error)
-    } finally {
-      setSnapshot('fetching', false)
-    }
-  }
-
-  const downloadSnapshot = (image: string, index: number) => {
-    const link = document.createElement('a')
-    link.href = `data:image/jpeg;base64,${image}`
-    link.download = `snapshot${index + 1}.jpg`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  }
-
-  const clearImage = (index: number) => {
-    const newImages = snapshot.images.filter((_, i) => i !== index)
-    setSnapshot('images', newImages)
-  }
-
-  const clearError = () => setSnapshot('error', null)
 
   const { modal } = useDrawerContext()
 
@@ -102,7 +54,7 @@ const DeviceActivity: VoidComponent<DeviceActivityProps> = (props) => {
               </div>
             </Suspense>
             <div class="flex gap-4">
-              <IconButton name="camera" onClick={onClickSnapshot} />
+              <IconButton name="videocam" href={`/${props.dongleId}/live`} />
               <IconButton name="settings" href={`/${props.dongleId}/settings`} />
             </div>
           </div>
@@ -121,36 +73,6 @@ const DeviceActivity: VoidComponent<DeviceActivityProps> = (props) => {
               <p class="mr-2">Upload Queue</p>
               <Icon class="text-zinc-500" name={queueVisible() ? 'keyboard_arrow_up' : 'keyboard_arrow_down'} />
             </button>
-          </Show>
-        </div>
-        <div class="flex flex-col gap-2">
-          <For each={snapshot.images}>
-            {(image, index) => (
-              <div class="flex-1 overflow-hidden rounded-lg bg-surface-container-low">
-                <div class="relative p-4">
-                  <img src={`data:image/jpeg;base64,${image}`} alt={`Device Snapshot ${index() + 1}`} />
-                  <div class="absolute right-4 top-4 p-4">
-                    <IconButton class="text-white" name="download" onClick={() => downloadSnapshot(image, index())} />
-                    <IconButton class="text-white" name="clear" onClick={() => clearImage(index())} />
-                  </div>
-                </div>
-              </div>
-            )}
-          </For>
-          <Show when={snapshot.fetching}>
-            <div class="flex-1 overflow-hidden rounded-lg bg-surface-container-low">
-              <div class="p-4">
-                <div>Loading snapshots...</div>
-              </div>
-            </div>
-          </Show>
-          <Show when={snapshot.error}>
-            <div class="flex-1 overflow-hidden rounded-lg bg-surface-container-low">
-              <div class="flex items-center p-4">
-                <IconButton class="text-white" name="clear" onClick={clearError} />
-                <span>Error: {snapshot.error}</span>
-              </div>
-            </div>
           </Show>
         </div>
         <RouteList dongleId={props.dongleId} />
