@@ -3,11 +3,13 @@ import type { JSXElement, VoidComponent } from 'solid-js'
 import clsx from 'clsx'
 
 import { type GPSPathPoint, getCoords } from '~/api/derived'
-import { type Coords, getPathStaticMapUrl } from '~/map'
+import { type Coords, type MapStyleChoice, getPathStaticMapUrl } from '~/map'
+import { getCurrentMapStyleChoice, useMapStylePreference } from '~/map/preferences'
 import { getThemeId } from '~/theme'
 import type { Route } from '~/api/types'
 
 import Icon from '~/components/material/Icon'
+import MapStylePicker from '~/components/MapStylePicker'
 
 const loadImage = (url: string | undefined): Promise<string | undefined> => {
   if (!url) {
@@ -21,7 +23,7 @@ const loadImage = (url: string | undefined): Promise<string | undefined> => {
   })
 }
 
-const getStaticMapUrl = (gpsPoints: GPSPathPoint[]): string | undefined => {
+const getStaticMapUrl = (gpsPoints: GPSPathPoint[], styleKey: MapStyleChoice): string | undefined => {
   if (gpsPoints.length === 0) {
     return undefined
   }
@@ -30,7 +32,7 @@ const getStaticMapUrl = (gpsPoints: GPSPathPoint[]): string | undefined => {
     path.push([lng, lat])
   })
   const themeId = getThemeId()
-  return getPathStaticMapUrl(themeId, path, 512, 512, true)
+  return getPathStaticMapUrl(themeId, path, 512, 512, true, styleKey)
 }
 
 const State = (props: { children: JSXElement; trailing?: JSXElement; opaque?: boolean }) => {
@@ -49,11 +51,18 @@ type RouteStaticMapProps = {
 
 const RouteStaticMap: VoidComponent<RouteStaticMapProps> = (props) => {
   const [coords] = createResource(() => props.route, getCoords)
-  const [url] = createResource(coords, getStaticMapUrl)
+  const [mapStyle, setMapStyle] = useMapStylePreference()
+  const [url] = createResource(
+    () => [coords(), mapStyle()] as const,
+    ([pts, style]) => getStaticMapUrl(pts ?? [], style ?? getCurrentMapStyleChoice()),
+  )
   const [loadedUrl] = createResource(url, loadImage)
 
   return (
     <div class={clsx('relative isolate flex h-full flex-col justify-end self-stretch bg-surface text-on-surface', props.class)}>
+      <div class="absolute right-2 top-2 z-10">
+        <MapStylePicker onChange={setMapStyle} />
+      </div>
       <Switch>
         <Match when={!!coords.error || !!url.error || !!loadedUrl.error} keyed>
           <State trailing={<Icon name="error" filled />}>Problem loading map</State>
