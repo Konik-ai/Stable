@@ -16,9 +16,9 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
-        name: 'comma connect',
-        short_name: 'connect',
-        description: 'manage your openpilot experience',
+        name: 'Konik Stable',
+        short_name: 'Stable',
+        description: 'manage your device experience',
         background_color: '#131318',
         theme_color: '#131318',
         start_url: '/',
