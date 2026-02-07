@@ -43,7 +43,7 @@ export interface Device extends ApiDevice {
 }
 
 export interface DrivingStatisticsAggregation {
-  distance: number
+  length: number
   minutes: number
   routes: number
 }
