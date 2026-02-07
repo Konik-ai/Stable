@@ -1,4 +1,4 @@
-import { createSignal, Show } from 'solid-js'
+import { createEffect, createSignal, Show } from 'solid-js'
 import { Navigate, useNavigate, useSearchParams } from '@solidjs/router'
 
 import { refreshAccessToken } from '~/api/auth/client'
@@ -16,18 +16,21 @@ export default function Auth() {
   const [error, setError] = createSignal<string | null>(null)
 
   const { code, provider } = params
-  if (code && provider) {
-    void refreshAccessToken(code, provider)
-      .then(() => navigate('/'))
-      .catch((err) => {
-        console.error(err)
-        if (err instanceof Error && err.message) {
-          setError(err.message)
-        } else {
-          setError('Something went wrong')
-        }
-      })
-  }
+
+  createEffect(() => {
+    if (code && provider) {
+      refreshAccessToken(code, provider)
+        .then(() => navigate('/'))
+        .catch((err) => {
+          console.error(err)
+          if (err instanceof Error && err.message) {
+            setError(err.message)
+          } else {
+            setError('Something went wrong')
+          }
+        })
+    }
+  })
 
   return (
     <Show when={code && provider} fallback={<Navigate href="/login" />} keyed>
