@@ -18,7 +18,7 @@ export const Routes = () => (
   <>
     <Route path="/login" component={Login} />
     <Route path="/logout" component={Logout} />
-    <Route path="/auth" component={Auth} />
+    <Route path="/v2/auth" component={Auth} />
 
     <Route path="/*dongleId" component={Dashboard} />
   </>
