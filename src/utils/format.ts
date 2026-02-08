@@ -2,12 +2,14 @@ import dayjs from 'dayjs'
 import advanced from 'dayjs/plugin/advancedFormat'
 import customParseFormat from 'dayjs/plugin/customParseFormat'
 import duration, { type Duration } from 'dayjs/plugin/duration'
+import utc from 'dayjs/plugin/utc'
 
 import type { Route } from '~/api/types'
 
 dayjs.extend(advanced)
 dayjs.extend(customParseFormat)
 dayjs.extend(duration)
+dayjs.extend(utc)
 
 export { dayjs }
 
@@ -50,11 +52,22 @@ export const formatVideoTime = (seconds: number): string => {
   return `${minutes}:${remainingSeconds.padStart(2, '0')}`
 }
 
+export const parseTimestamp = (input: string | number): dayjs.Dayjs => {
+  if (typeof input === 'number') {
+    // epoch seconds (< 1e12) vs epoch milliseconds (>= 1e12)
+    return input >= 1e12 ? dayjs.utc(input) : dayjs.unix(input).utc()
+  }
+  return dayjs.utc(input)
+}
+
 export const getRouteDuration = (route: Route | undefined): Duration | undefined => {
   if (!route || !route.start_time || !route.end_time) return undefined
-  const startTime = dayjs(route.start_time)
-  const endTime = dayjs(route.end_time)
-  return dayjs.duration(endTime.diff(startTime))
+  const startTime = parseTimestamp(route.start_time)
+  const endTime = parseTimestamp(route.end_time)
+  if (!startTime.isValid() || !endTime.isValid()) return undefined
+  const diff = endTime.diff(startTime)
+  if (diff <= 0) return undefined
+  return dayjs.duration(diff)
 }
 
 export const formatRouteDuration = (route: Route | undefined): string | undefined => {
@@ -63,16 +76,8 @@ export const formatRouteDuration = (route: Route | undefined): string | undefine
   return duration ? _formatDuration(duration) : undefined
 }
 
-const parseTimestamp = (input: dayjs.ConfigType): dayjs.Dayjs => {
-  if (typeof input === 'number') {
-    // Assume number is unix timestamp, convert to seconds
-    return dayjs.unix(input >= 1e11 ? input / 1000 : input)
-  }
-  return dayjs(input)
-}
-
-export const formatDate = (input: dayjs.ConfigType): string => {
-  const date = parseTimestamp(input)
+export const formatDate = (input: string | number): string => {
+  const date = parseTimestamp(input).local()
   // Hide current year
   const yearStr = date.year() === dayjs().year() ? '' : ', YYYY'
   return date.format('MMMM Do' + yearStr)

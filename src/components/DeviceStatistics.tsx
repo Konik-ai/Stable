@@ -13,7 +13,7 @@ const DeviceStatistics: VoidComponent<{ class?: string; dongleId: string }> = (p
     <StatisticBar
       class={props.class}
       statistics={[
-        { label: 'Distance', value: () => formatDistance(allTime()?.distance) },
+        { label: 'Distance', value: () => formatDistance(allTime()?.length) },
         { label: 'Duration', value: () => formatDuration(allTime()?.minutes) },
         { label: 'Routes', value: () => allTime()?.routes },
       ]}

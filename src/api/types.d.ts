@@ -58,20 +58,20 @@ export interface Route {
   dongle_id: string
   end_lat: number // default to 0
   end_lng: number // default to 0
-  end_time: string | null
+  end_time: string | number | null
   fullname: string
   git_branch: string | null
   git_commit: string | null
   git_dirty: boolean | null
   git_remote: string | null
   is_public: boolean
-  distance: number // default to 0
+  length: number // default to 0
   maxqlog: number
   platform: string | null
   procqlog: number
   start_lat: number // default to 0
   start_lng: number // default to 0
-  start_time: string | null
+  start_time: string | number | null
   url: string
   user_id: string | null
   version: string | null

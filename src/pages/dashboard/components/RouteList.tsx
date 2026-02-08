@@ -12,15 +12,15 @@ import Icon from '~/components/material/Icon'
 import RouteStatisticsBar from '~/components/RouteStatisticsBar'
 import { getPlaceName } from '~/map/geocode'
 import type { Route } from '~/api/types'
-import { dateTimeToColorBetween } from '~/utils/format'
+import { dateTimeToColorBetween, parseTimestamp } from '~/utils/format'
 
 interface RouteCardProps {
   route: Route
 }
 
 const RouteCard: VoidComponent<RouteCardProps> = (props) => {
-  const startTime = () => dayjs.utc(props.route.start_time).local()
-  const endTime = () => dayjs.utc(props.route.end_time).local()
+  const startTime = () => parseTimestamp(props.route.start_time!).local()
+  const endTime = () => parseTimestamp(props.route.end_time!).local()
   const color = () => dateTimeToColorBetween(startTime().toDate(), endTime().toDate(), [30, 57, 138], [218, 161, 28])
   const [statistics] = createResource(() => props.route, getRouteStatistics)
   const [location] = createResource(async () => {
@@ -106,7 +106,7 @@ const RouteList: VoidComponent<{ dongleId: string }> = (props) => {
   // Group and display headers for each day
   let prevDayHeader: string | null = null
   function getDayHeader(route: Route): string | null {
-    const date = dayjs.utc(route.start_time).local()
+    const date = parseTimestamp(route.start_time!).local()
     let dayHeader = null
     if (date.isSame(dayjs(), 'day')) {
       dayHeader = `Today – ${date.format('dddd, MMM D')}`

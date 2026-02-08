@@ -4,7 +4,7 @@ import { setRouteViewed } from '~/api/athena'
 import { getDevice } from '~/api/devices'
 import { getProfile } from '~/api/profile'
 import { getRoute } from '~/api/route'
-import { dayjs } from '~/utils/format'
+import { parseTimestamp } from '~/utils/format'
 import { resolved } from '~/utils/reactivity'
 
 import IconButton from '~/components/material/IconButton'
@@ -31,7 +31,7 @@ const RouteActivity: VoidComponent<RouteActivityProps> = (props) => {
 
   const routeName = () => `${props.dongleId}|${props.dateStr}`
   const [route] = createResource(routeName, getRoute)
-  const startTime = () => (route.latest ? dayjs(route().start_time).format('dddd, MMM D, YYYY') : '')
+  const startTime = () => (route.latest ? parseTimestamp(route().start_time!).local().format('dddd, MMM D, YYYY') : '')
 
   const selection = () => ({ startTime: props.startTime, endTime: props.endTime })
 

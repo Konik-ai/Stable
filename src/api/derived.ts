@@ -97,7 +97,7 @@ const getDriveEvents = (route: Route): Promise<DriveEvent[]> =>
   getDerived<DriveEvent[]>(route, 'events.json').then((events) => events.flat())
 
 const generateTimelineEvents = (route: Route, events: DriveEvent[]): TimelineEvent[] => {
-  const routeDuration = getRouteDuration(route)?.asMilliseconds() ?? 0
+  const routeDuration = getRouteDuration(route)?.asMilliseconds() ?? (route.maxqlog + 1) * 60 * 1000
 
   // sort events by timestamp
   events.sort((a, b) => {
@@ -200,8 +200,10 @@ export const generateRouteStatistics = (route: Route | undefined, timeline: Time
     }
   })
 
+  const routeDurationMs = getRouteDuration(route)?.asMilliseconds() ?? ((route?.maxqlog ?? 0) + 1) * 60 * 1000
+
   return {
-    routeDurationMs: getRouteDuration(route)?.asMilliseconds() ?? 0,
+    routeDurationMs,
     engagedDurationMs,
     userFlags,
   }
