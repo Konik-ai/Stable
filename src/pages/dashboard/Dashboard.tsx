@@ -51,7 +51,7 @@ const DashboardDrawer: VoidComponent<{ devices: Device[] | undefined }> = (props
         Add new device
       </Button>
       <div class="m-4 mt-0">
-        <ButtonBase href={`${USERADMIN_URL}/v2/auth/`}>
+        <ButtonBase href={`${USERADMIN_URL}/login`}>
           <Suspense fallback={<div class="min-h-16 rounded-md skeleton-loader" />}>
             <div class="flex max-w-full items-center px-3 rounded-md outline outline-1 outline-outline-variant min-h-16">
               <div class="shrink-0 size-10 inline-flex items-center justify-center rounded-full bg-primary-container text-on-primary-container">
