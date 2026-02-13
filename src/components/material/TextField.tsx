@@ -36,7 +36,7 @@ const stateColors = {
 }
 
 const TextField: Component<TextFieldProps> = (props) => {
-  const [, inputProps] = splitProps(props, ['class', 'label', 'helperText', 'error', 'value'])
+  const [local, inputProps] = splitProps(props, ['class', 'label', 'helperText', 'error', 'value', 'onInput'])
 
   const [focused, setFocused] = createSignal(false)
   const [hovered, setHovered] = createSignal(false)
@@ -44,7 +44,7 @@ const TextField: Component<TextFieldProps> = (props) => {
 
   // Keep local value in sync with prop value
   createEffect(() => {
-    if (props.value) setInputValue(props.value)
+    if (local.value !== undefined) setInputValue(local.value)
   })
 
   const labelFloating = () => focused() || inputValue()?.length > 0
@@ -101,7 +101,10 @@ const TextField: Component<TextFieldProps> = (props) => {
               props.label && labelFloating() && 'pt-6 pb-2',
             )}
             value={inputValue()}
-            onInput={(e) => setInputValue(e.target.value)}
+            onInput={(e) => {
+              setInputValue(e.currentTarget.value)
+              local.onInput?.(e)
+            }}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
           />

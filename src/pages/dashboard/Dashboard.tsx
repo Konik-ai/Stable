@@ -20,6 +20,7 @@ import TopAppBar from '~/components/material/TopAppBar'
 import DeviceList from './components/DeviceList'
 import DeviceActivity from './activities/DeviceActivity'
 import LiveViewActivity from './activities/LiveViewActivity'
+import RemoteSshActivity from './activities/RemoteSshActivity'
 import RouteActivity from './activities/RouteActivity'
 import SettingsActivity from './activities/SettingsActivity'
 import BuildInfo from '~/components/BuildInfo'
@@ -50,7 +51,7 @@ const DashboardDrawer: VoidComponent<{ devices: Device[] | undefined }> = (props
         Add new device
       </Button>
       <div class="m-4 mt-0">
-        <ButtonBase href={USERADMIN_URL}>
+        <ButtonBase href={`${USERADMIN_URL}/v2/auth/`}>
           <Suspense fallback={<div class="min-h-16 rounded-md skeleton-loader" />}>
             <div class="flex max-w-full items-center px-3 rounded-md outline outline-1 outline-outline-variant min-h-16">
               <div class="shrink-0 size-10 inline-flex items-center justify-center rounded-full bg-primary-container text-on-primary-container">
@@ -181,6 +182,9 @@ const Dashboard: Component<RouteSectionProps> = () => {
                   </Match>
                   <Match when={urlState().dateStr === 'live'}>
                     <LiveViewActivity dongleId={dongleId} />
+                  </Match>
+                  <Match when={urlState().dateStr === 'ssh'}>
+                    <RemoteSshActivity dongleId={dongleId} />
                   </Match>
                   <Match when={urlState().dateStr} keyed>
                     {(dateStr) => (

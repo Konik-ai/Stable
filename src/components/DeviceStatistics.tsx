@@ -9,11 +9,16 @@ const DeviceStatistics: VoidComponent<{ class?: string; dongleId: string }> = (p
   const [statistics] = createResource(() => props.dongleId, getDeviceStats)
   const allTime = () => statistics()?.all
 
+  const lifetimeDistanceMi = () => {
+    const st = allTime()
+    return st?.statsDistanceTraveled ?? st?.distance ?? st?.length
+  }
+
   return (
     <StatisticBar
       class={props.class}
       statistics={[
-        { label: 'Distance', value: () => formatDistance(allTime()?.length) },
+        { label: 'Distance', value: () => formatDistance(lifetimeDistanceMi()) },
         { label: 'Duration', value: () => formatDuration(allTime()?.minutes) },
         { label: 'Routes', value: () => allTime()?.routes },
       ]}
