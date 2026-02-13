@@ -28,7 +28,9 @@ const DeviceSettingsForm: VoidComponent<{ dongleId: string; device: Resource<Dev
 
   const [unpair, unpairData] = useAction(async () => {
     const { success } = await unpairDevice(props.dongleId)
-    if (success) window.location.href = window.location.origin
+    if (success) {
+      window.location.href = window.location.origin
+    }
   })
 
   const [shareLoading, setShareLoading] = createSignal(false)
@@ -59,6 +61,7 @@ const DeviceSettingsForm: VoidComponent<{ dongleId: string; device: Resource<Dev
   return (
     <div class="flex flex-col gap-4">
       <h2 class="text-lg">{deviceName()}</h2>
+
       <Show when={props.device()?.is_owner}>
         <div class="flex flex-col gap-2">
           <h3 class="text-md">{(deviceUsers() || []).length - 1 > 0 ? 'shared with:' : 'share device'}</h3>

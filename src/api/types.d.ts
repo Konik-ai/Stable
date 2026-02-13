@@ -43,7 +43,10 @@ export interface Device extends ApiDevice {
 }
 
 export interface DrivingStatisticsAggregation {
-  length: number
+  // Backend field names have varied over time; accept any of these as "distance in miles".
+  length?: number
+  distance?: number
+  statsDistanceTraveled?: number
   minutes: number
   routes: number
 }

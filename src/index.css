@@ -141,6 +141,34 @@
 }
 
 @layer components {
+  @keyframes term-blink {
+    0%,
+    49% {
+      opacity: 1;
+    }
+    50%,
+    100% {
+      opacity: 0;
+    }
+  }
+
+  .term-cursor {
+    display: inline-block;
+    width: 0.6ch;
+    height: 1.15em;
+    background: rgb(134 239 172); /* tailwind green-300 */
+    vertical-align: -0.2em;
+    border-radius: 1px;
+  }
+
+  .term-cursor-active {
+    animation: term-blink 1s steps(2, start) infinite;
+  }
+
+  .term-cursor-inactive {
+    opacity: 0.35;
+  }
+
   .state-layer {
     @apply relative before:absolute before:inset-0 before:transition before:opacity-0 before:overflow-hidden sm:before:hover:opacity-[.08] sm:before:focus:opacity-[.12] before:active:opacity-[.12] disabled:before:opacity-0 disabled:before:hover:opacity-0;
   }

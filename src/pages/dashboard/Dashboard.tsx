@@ -20,6 +20,7 @@ import TopAppBar from '~/components/material/TopAppBar'
 import DeviceList from './components/DeviceList'
 import DeviceActivity from './activities/DeviceActivity'
 import LiveViewActivity from './activities/LiveViewActivity'
+import RemoteSshActivity from './activities/RemoteSshActivity'
 import RouteActivity from './activities/RouteActivity'
 import SettingsActivity from './activities/SettingsActivity'
 import BuildInfo from '~/components/BuildInfo'
@@ -181,6 +182,9 @@ const Dashboard: Component<RouteSectionProps> = () => {
                   </Match>
                   <Match when={urlState().dateStr === 'live'}>
                     <LiveViewActivity dongleId={dongleId} />
+                  </Match>
+                  <Match when={urlState().dateStr === 'ssh'}>
+                    <RemoteSshActivity dongleId={dongleId} />
                   </Match>
                   <Match when={urlState().dateStr} keyed>
                     {(dateStr) => (

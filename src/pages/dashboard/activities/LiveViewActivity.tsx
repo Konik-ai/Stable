@@ -1,6 +1,7 @@
 import { createEffect, createSignal, For, onCleanup, onMount, Show, type VoidComponent } from 'solid-js'
 
 import { getSdp, setSdpAnswer } from '~/api/athena'
+import DevicePinGate, { useDevicePinAuth } from '~/components/DevicePinGate'
 import Button from '~/components/material/Button'
 import IconButton from '~/components/material/IconButton'
 import TopAppBar from '~/components/material/TopAppBar'
@@ -29,7 +30,8 @@ const ICE_SERVERS: RTCIceServer[] = [
   },
 ]
 
-const LiveViewActivity: VoidComponent<{ dongleId: string }> = (props) => {
+const LiveViewPane: VoidComponent<{ dongleId: string }> = (props) => {
+  const { authToken } = useDevicePinAuth()
   const [rtcConnection, setRtcConnection] = createSignal<RTCPeerConnection | null>(null)
   const [_dataChannel, setDataChannel] = createSignal<RTCDataChannel | null>(null)
   const [dataChannelReady, setDataChannelReady] = createSignal(false)
@@ -52,7 +54,7 @@ const LiveViewActivity: VoidComponent<{ dongleId: string }> = (props) => {
   }
 
   const fetchDeviceSdpOffer = async () => {
-    const resp = await getSdp(props.dongleId)
+    const resp = await getSdp(props.dongleId, authToken())
     if (resp.error) {
       throw new Error(resp.error)
     }
@@ -67,7 +69,7 @@ const LiveViewActivity: VoidComponent<{ dongleId: string }> = (props) => {
     setLoading(true)
 
     try {
-      await setSdpAnswer(props.dongleId, { type: 'start' })
+      await setSdpAnswer(props.dongleId, { type: 'start' }, authToken())
       const connection = new RTCPeerConnection({ iceServers: ICE_SERVERS, iceTransportPolicy: 'all' })
 
       connection.ontrack = (event) => {
@@ -87,7 +89,7 @@ const LiveViewActivity: VoidComponent<{ dongleId: string }> = (props) => {
 
       connection.onicecandidate = (event) => {
         if (event.candidate) {
-          void setSdpAnswer(props.dongleId, { type: 'candidate', candidate: event.candidate })
+          void setSdpAnswer(props.dongleId, { type: 'candidate', candidate: event.candidate }, authToken())
         }
       }
 
@@ -149,7 +151,7 @@ const LiveViewActivity: VoidComponent<{ dongleId: string }> = (props) => {
         })
       })
 
-      await setSdpAnswer(props.dongleId, answer)
+      await setSdpAnswer(props.dongleId, answer, authToken())
       setRtcConnection(connection)
       setLoading(false)
       setStatus(null)
@@ -214,58 +216,64 @@ const LiveViewActivity: VoidComponent<{ dongleId: string }> = (props) => {
   })
 
   return (
-    <>
-      <TopAppBar component="h2" leading={<IconButton class="md:hidden" name="arrow_back" href={`/${props.dongleId}`} />}>
-        Live View
-      </TopAppBar>
-      <div class="flex flex-col gap-6 px-4 pb-10">
-        <div class="rounded-lg bg-surface-container-low p-6 shadow-lg">
-          <div class="flex flex-wrap items-center justify-between gap-4">
-            <div class="flex flex-col gap-1">
-              <span class="text-lg font-medium text-on-surface">Stream a camera view from your device</span>
-              <span class="text-sm text-on-surface-variant">Live video updates as long as your device stays online.</span>
-            </div>
-            <div class="flex flex-wrap items-center gap-3">
-              <Button color={dataChannelReady() ? 'secondary' : 'primary'} loading={loading()} onClick={toggleConnection}>
-                {dataChannelReady() ? 'Disconnect' : 'Connect'}
-              </Button>
-              <Show when={status()}>
-                <span class="rounded-full bg-surface-container-high px-3 py-1 text-xs text-on-surface-variant">{status()}</span>
-              </Show>
-            </div>
+    <div class="flex flex-col gap-6 px-4 pb-10">
+      <div class="rounded-lg bg-surface-container-low p-6 shadow-lg">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div class="flex flex-col gap-1">
+            <span class="text-lg font-medium text-on-surface">Stream a camera view from your device</span>
+            <span class="text-sm text-on-surface-variant">Live video updates as long as your device stays online.</span>
+          </div>
+          <div class="flex flex-wrap items-center gap-3">
+            <Button color={dataChannelReady() ? 'secondary' : 'primary'} loading={loading()} onClick={toggleConnection}>
+              {dataChannelReady() ? 'Disconnect' : 'Connect'}
+            </Button>
+            <Show when={status()}>
+              <span class="rounded-full bg-surface-container-high px-3 py-1 text-xs text-on-surface-variant">{status()}</span>
+            </Show>
           </div>
         </div>
-        <Show when={error()}>
-          <div class="rounded-md bg-surface-container-high p-3 text-sm text-error">{error()}</div>
-        </Show>
-        <div class="grid gap-6 md:grid-cols-2">
-          <For each={streams()}>
-            {(item) => (
-              <div class="rounded-lg bg-surface-container-low p-5 shadow-md">
-                <div class="mb-3 flex items-center justify-between">
-                  <div class="flex items-center gap-2">
-                    <div class="h-2 w-2 rounded-full bg-emerald-400" />
-                    <span class="text-sm text-on-surface-variant">{STREAM_LABELS[item.label] ?? item.label}</span>
-                  </div>
-                </div>
-                <video
-                  class="aspect-video w-full rounded-lg bg-black/70 shadow-inner"
-                  autoplay
-                  muted
-                  playsinline
-                  ref={(el) => {
-                    if (el.srcObject !== item.stream) {
-                      el.srcObject = item.stream
-                    }
-                  }}
-                />
-              </div>
-            )}
-          </For>
-        </div>
       </div>
-    </>
+      <Show when={error()}>
+        <div class="rounded-md bg-surface-container-high p-3 text-sm text-error">{error()}</div>
+      </Show>
+      <div class="grid gap-6 md:grid-cols-2">
+        <For each={streams()}>
+          {(item) => (
+            <div class="rounded-lg bg-surface-container-low p-5 shadow-md">
+              <div class="mb-3 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="h-2 w-2 rounded-full bg-emerald-400" />
+                  <span class="text-sm text-on-surface-variant">{STREAM_LABELS[item.label] ?? item.label}</span>
+                </div>
+              </div>
+              <video
+                class="aspect-video w-full rounded-lg bg-black/70 shadow-inner"
+                autoplay
+                muted
+                playsinline
+                ref={(el) => {
+                  if (el.srcObject !== item.stream) {
+                    el.srcObject = item.stream
+                  }
+                }}
+              />
+            </div>
+          )}
+        </For>
+      </div>
+    </div>
   )
 }
+
+const LiveViewActivity: VoidComponent<{ dongleId: string }> = (props) => (
+  <>
+    <TopAppBar component="h2" leading={<IconButton class="md:hidden" name="arrow_back" href={`/${props.dongleId}`} />}>
+      Live View
+    </TopAppBar>
+    <DevicePinGate dongleId={props.dongleId} featureLabel="Live View">
+      <LiveViewPane dongleId={props.dongleId} />
+    </DevicePinGate>
+  </>
+)
 
 export default LiveViewActivity

@@ -55,6 +55,7 @@ const DeviceActivity: VoidComponent<DeviceActivityProps> = (props) => {
             </Suspense>
             <div class="flex gap-4">
               <IconButton name="videocam" href={`/${props.dongleId}/live`} />
+              <IconButton name="terminal" href={`/${props.dongleId}/ssh`} />
               <IconButton name="settings" href={`/${props.dongleId}/settings`} />
             </div>
           </div>
