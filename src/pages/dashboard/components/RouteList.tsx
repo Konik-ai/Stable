@@ -94,18 +94,43 @@ const Sentinel = (props: { onTrigger: () => void }) => {
 const PAGE_SIZE = 10
 
 const RouteList: VoidComponent<{ dongleId: string }> = (props) => {
+  const seenRoutes = new Set<string>()
+  // Use offset-based pagination to avoid backend cursor inconsistencies across deployments.
   const endpoint = () => `/v1/devices/${props.dongleId}/routes?limit=${PAGE_SIZE}`
-  const getKey = (previousPageData?: Route[]): string | undefined => {
-    if (!previousPageData) return endpoint()
-    if (previousPageData.length === 0) return undefined
-    return `${endpoint()}&created_before=${previousPageData.at(-1)!.create_time}`
+  const [hasMore, setHasMore] = createSignal(true)
+
+  const routeKey = (route: Route): string => {
+    // `fullname` is stable and unique for a route.
+    if (route.fullname) return route.fullname
+    return `${route.dongle_id}|${route.start_time ?? ''}|${route.end_time ?? ''}|${route.create_time ?? ''}`
   }
+
+  const getKey = (page: number): string => (page > 0 ? `${endpoint()}&offset=${page * PAGE_SIZE}` : endpoint())
+
   const getPage = (page: number): Promise<Route[]> => {
     if (pages[page] === undefined) {
       pages[page] = (async () => {
-        const previousPageData = page > 0 ? await getPage(page - 1) : undefined
-        const key = getKey(previousPageData)
-        return key ? fetcher<Route[]>(key).catch(() => []) : []
+        const fetched = await fetcher<Route[]>(getKey(page)).catch(() => [])
+        if (fetched.length === 0) {
+          setHasMore(false)
+          return []
+        }
+
+        const unique = fetched.filter((r) => {
+          const k = routeKey(r)
+          if (seenRoutes.has(k)) return false
+          seenRoutes.add(k)
+          return true
+        })
+
+        // If the backend returns only routes we've already seen, we're stuck on a repeated page. Stop.
+        if (unique.length === 0) {
+          setHasMore(false)
+          return []
+        }
+
+        if (fetched.length < PAGE_SIZE) setHasMore(false)
+        return unique
       })()
     }
     return pages[page]
@@ -119,6 +144,9 @@ const RouteList: VoidComponent<{ dongleId: string }> = (props) => {
     if (props.dongleId) {
       pages.length = 0
       setSize(1)
+      setHasMore(true)
+      seenRoutes.clear()
+      prevDayHeader = null
     }
   })
 
@@ -179,7 +207,9 @@ const RouteList: VoidComponent<{ dongleId: string }> = (props) => {
           )
         }}
       </For>
-      <Sentinel onTrigger={() => setSize((size) => size + 1)} />
+      <Show when={hasMore()}>
+        <Sentinel onTrigger={() => setSize((size) => size + 1)} />
+      </Show>
     </div>
   )
 }
