@@ -49,6 +49,11 @@ export const getDevice = async (dongleId: string): Promise<Device> => {
   try {
     const device = await fetcher<ApiDevice>(`/v1.1/devices/${dongleId}/`)
     return createDevice(device)
+  } catch {}
+
+  try {
+    const device = await fetcher<ApiDevice>(`/v1/devices/${dongleId}/`)
+    return createDevice(device)
   } catch {
     return createSharedDevice(dongleId)
   }
@@ -68,6 +73,24 @@ export const getDevices = async (): Promise<Device[]> =>
     .then(sortDevices)
     .then((devices) => devices.map(createDevice))
     .catch(() => [])
+
+export const setDeviceAlias = async (dongleId: string, alias: string): Promise<Device> => {
+  const init = {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ alias }),
+  } satisfies RequestInit
+
+  // Konik-Stable uses `Devices.setDeviceAlias(...)`; the backend endpoint has varied across deployments.
+  // Try the v1.1 device endpoint first (used by getDevice/getDeviceStats), then fall back to v1.
+  try {
+    const device = await fetcher<ApiDevice>(`/v1.1/devices/${dongleId}/`, init)
+    return createDevice(device)
+  } catch {
+    const device = await fetcher<ApiDevice>(`/v1/devices/${dongleId}/`, init)
+    return createDevice(device)
+  }
+}
 
 export const unpairDevice = async (dongleId: string) =>
   fetcher<{ success: number }>(`/v1/devices/${dongleId}/unpair`, {
