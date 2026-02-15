@@ -6,23 +6,31 @@ import Button from '~/components/material/Button'
 import IconButton from '~/components/material/IconButton'
 import TopAppBar from '~/components/material/TopAppBar'
 
-const POLL_MS = 120
 const MAX_BUFFER = 250_000
 const WRITE_FLUSH_MS = 20
 const POLL_ACTIVE_MS = 40
 const POLL_IDLE_MS = 200
 const ACTIVE_WINDOW_MS = 2000
 
+// biome-ignore lint/complexity/useRegexLiterals: regex literals with ESC codes trigger lint about control characters; keep as strings.
+const RE_OSC = new RegExp('\\x1B\\][^\\x07\\x1B]*(?:\\x07|\\x1B\\\\)', 'g')
+// biome-ignore lint/complexity/useRegexLiterals: regex literals with ESC codes trigger lint about control characters; keep as strings.
+const RE_CSI = new RegExp('\\x1B\\[[0-?]*[ -/]*[@-~]', 'g')
+// biome-ignore lint/complexity/useRegexLiterals: regex literals with ESC codes trigger lint about control characters; keep as strings.
+const RE_ESC = new RegExp('\\x1B[@-_]', 'g')
+// biome-ignore lint/complexity/useRegexLiterals: regex literals with ESC codes trigger lint about control characters; keep as strings.
+const RE_CTRL = new RegExp('[\\x00-\\x08\\x0B-\\x1F\\x7F]', 'g')
+
 const stripTerminalControlSequences = (value: string) =>
   value
     // OSC sequences (e.g. title changes): ESC ] ... BEL or ESC \
-    .replace(/\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)/g, '')
+    .replace(RE_OSC, '')
     // CSI sequences (colors, cursor movement, bracketed paste toggles, etc)
-    .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(RE_CSI, '')
     // Remaining single-character ESC sequences
-    .replace(/\x1B[@-_]/g, '')
+    .replace(RE_ESC, '')
     // Control chars except newline and tab
-    .replace(/[\x00-\x08\x0B-\x1F\x7F]/g, '')
+    .replace(RE_CTRL, '')
 
 const decodeBase64 = (value: string) => {
   if (!value) return ''
@@ -44,8 +52,10 @@ const RemoteSshTerminal: VoidComponent<{ dongleId: string }> = (props) => {
   const [error, setError] = createSignal<string | null>(null)
   const [exitCode, setExitCode] = createSignal<number | null>(null)
   const [focused, setFocused] = createSignal(false)
+  const [coarsePointer, setCoarsePointer] = createSignal(false)
 
   let terminalRef: HTMLDivElement | undefined
+  let inputRef: HTMLTextAreaElement | undefined
   let pollTimer: number | undefined
   let pollInFlight = false
   let activeUntil = 0
@@ -53,6 +63,8 @@ const RemoteSshTerminal: VoidComponent<{ dongleId: string }> = (props) => {
   let writeTimer: number | undefined
   let pendingWrite = ''
   let writeChain: Promise<void> = Promise.resolve()
+
+  let composing = false
 
   const markActive = () => {
     activeUntil = Date.now() + ACTIVE_WINDOW_MS
@@ -214,7 +226,11 @@ const RemoteSshTerminal: VoidComponent<{ dongleId: string }> = (props) => {
       setConnected(true)
       markActive()
       schedulePoll(true)
-      terminalRef?.focus()
+      if (coarsePointer()) {
+        queueMicrotask(() => inputRef?.focus())
+      } else {
+        terminalRef?.focus()
+      }
     } catch (err) {
       const msg = (err as Error).message || 'Failed to connect'
       setError(msg === 'Remote SSH disabled' ? 'Remote SSH disabled' : msg)
@@ -222,23 +238,6 @@ const RemoteSshTerminal: VoidComponent<{ dongleId: string }> = (props) => {
       setSessionId(null)
     } finally {
       setConnecting(false)
-    }
-  }
-
-  const sendData = async (data: string) => {
-    const sid = sessionId()
-    if (!sid || !connected()) return
-    try {
-      const resp = await remoteSshWrite(props.dongleId, sid, data, authToken())
-      if (resp.error) {
-        throw new Error(resp.error)
-      }
-      if (resp.result && !resp.result.success) {
-        throw new Error(resp.result.error || 'Remote SSH disabled')
-      }
-    } catch (err) {
-      setError((err as Error).message || 'Failed to send input')
-      await disconnect()
     }
   }
 
@@ -295,6 +294,14 @@ const RemoteSshTerminal: VoidComponent<{ dongleId: string }> = (props) => {
   }
 
   onMount(() => {
+    const mq = window.matchMedia?.('(pointer: coarse)')
+    const updatePointer = () => setCoarsePointer(!!(mq?.matches || navigator.maxTouchPoints > 0))
+    updatePointer()
+    if (mq) {
+      mq.addEventListener('change', updatePointer)
+      onCleanup(() => mq.removeEventListener('change', updatePointer))
+    }
+
     const onResize = () => {
       const sid = sessionId()
       if (!sid || !connected()) return
@@ -322,26 +329,110 @@ const RemoteSshTerminal: VoidComponent<{ dongleId: string }> = (props) => {
       <Show when={error()}>
         <div class="rounded-md bg-surface-container-high p-3 text-sm text-error">{error()}</div>
       </Show>
-      <div
-        ref={terminalRef}
-        tabIndex={0}
-        onKeyDown={handleKeyDown}
-        onPaste={(e) => {
-          if (!connected()) return
-          e.preventDefault()
-          const text = e.clipboardData?.getData('text/plain') || ''
-          if (text) queueWrite(text)
-        }}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        class="h-[65vh] overflow-auto rounded-lg border border-outline-variant bg-black p-4 font-mono text-sm text-green-300 outline-none focus:ring-2 focus:ring-primary"
-      >
-        <pre class="whitespace-pre-wrap break-words">
-          {output()}
-          <Show when={connected()}>
-            <span class={focused() ? 'term-cursor term-cursor-active' : 'term-cursor term-cursor-inactive'}>{'\u00a0'}</span>
-          </Show>
-        </pre>
+      <div class="relative">
+        <div
+          ref={terminalRef}
+          tabIndex={0}
+          onKeyDown={handleKeyDown}
+          onPointerDown={() => {
+            if (!coarsePointer()) return
+            queueMicrotask(() => inputRef?.focus())
+          }}
+          onTouchStart={() => {
+            if (!coarsePointer()) return
+            queueMicrotask(() => inputRef?.focus())
+          }}
+          onPaste={(e) => {
+            if (!connected()) return
+            e.preventDefault()
+            const text = e.clipboardData?.getData('text/plain') || ''
+            if (text) queueWrite(text)
+          }}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          class="h-[65vh] overflow-auto rounded-lg border border-outline-variant bg-black p-4 font-mono text-sm text-green-300 outline-none focus:ring-2 focus:ring-primary"
+        >
+          <pre class="whitespace-pre-wrap break-words">
+            {output()}
+            <Show when={connected()}>
+              <span class={focused() ? 'term-cursor term-cursor-active' : 'term-cursor term-cursor-inactive'}>{'\u00a0'}</span>
+            </Show>
+          </pre>
+        </div>
+
+        <textarea
+          ref={inputRef}
+          aria-label="Terminal input"
+          autocapitalize="off"
+          autocomplete="off"
+          spellcheck={false}
+          inputmode="text"
+          class="absolute inset-0 opacity-0"
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          onCompositionStart={() => {
+            composing = true
+          }}
+          onCompositionEnd={() => {
+            composing = false
+          }}
+          onKeyDown={(e) => {
+            if (!connected()) return
+
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              queueWrite('\r')
+              return
+            }
+
+            // If the textarea is empty, backspace won't trigger an input event; send DEL explicitly.
+            if (e.key === 'Backspace' && e.currentTarget.value === '') {
+              e.preventDefault()
+              queueWrite('\x7f')
+              return
+            }
+
+            if (e.key === 'Tab') {
+              e.preventDefault()
+              queueWrite('\t')
+              return
+            }
+
+            if (e.key === 'ArrowUp') {
+              e.preventDefault()
+              queueWrite('\x1b[A')
+              return
+            }
+            if (e.key === 'ArrowDown') {
+              e.preventDefault()
+              queueWrite('\x1b[B')
+              return
+            }
+            if (e.key === 'ArrowRight') {
+              e.preventDefault()
+              queueWrite('\x1b[C')
+              return
+            }
+            if (e.key === 'ArrowLeft') {
+              e.preventDefault()
+              queueWrite('\x1b[D')
+              return
+            }
+          }}
+          onInput={(e) => {
+            if (!connected()) {
+              e.currentTarget.value = ''
+              return
+            }
+            if (composing) return
+            const value = e.currentTarget.value
+            if (!value) return
+
+            const normalized = value.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n/g, '\r')
+            queueWrite(normalized)
+            e.currentTarget.value = ''
+          }}
+        />
       </div>
     </div>
   )
