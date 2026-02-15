@@ -1,17 +1,14 @@
-import { createMemo, createResource, ErrorBoundary, lazy, Match, Show, Suspense, Switch } from 'solid-js'
+import { createMemo, createResource, lazy, Match, Show, Switch } from 'solid-js'
 import type { Component, JSXElement, VoidComponent } from 'solid-js'
 import { Navigate, type RouteSectionProps, useLocation } from '@solidjs/router'
 import clsx from 'clsx'
 
 import { isSignedIn } from '~/api/auth/client'
-import { USERADMIN_URL } from '~/api/config'
 import { getDevices } from '~/api/devices'
-import { getProfile } from '~/api/profile'
 import storage from '~/utils/storage'
 import type { Device } from '~/api/types'
 
 import Button from '~/components/material/Button'
-import ButtonBase from '~/components/material/ButtonBase'
 import Drawer, { DrawerToggleButton, useDrawerContext } from '~/components/material/Drawer'
 import Icon from '~/components/material/Icon'
 import IconButton from '~/components/material/IconButton'
@@ -31,8 +28,6 @@ const DashboardDrawer: VoidComponent<{ devices: Device[] | undefined }> = (props
   const { modal, setOpen } = useDrawerContext()
   const onClose = () => setOpen(false)
 
-  const [profile] = createResource(getProfile)
-
   return (
     <>
       <TopAppBar
@@ -50,24 +45,13 @@ const DashboardDrawer: VoidComponent<{ devices: Device[] | undefined }> = (props
       <Button class="m-4" leading={<Icon name="add" />} href="/pair" onClick={onClose}>
         Add new device
       </Button>
-      <div class="m-4 mt-0">
-        <ButtonBase href={`${USERADMIN_URL}/login`}>
-          <Suspense fallback={<div class="min-h-16 rounded-md skeleton-loader" />}>
-            <div class="flex max-w-full items-center px-3 rounded-md outline outline-1 outline-outline-variant min-h-16">
-              <div class="shrink-0 size-10 inline-flex items-center justify-center rounded-full bg-primary-container text-on-primary-container">
-                <Icon name="person" filled />
-              </div>
-              <div class="min-w-0 mx-3">
-                <ErrorBoundary fallback="Error loading profile">
-                  <div class="truncate text-sm text-on-surface">{profile()?.email}</div>
-                  <div class="truncate text-xs text-on-surface-variant">{profile()?.user_id}</div>
-                </ErrorBoundary>
-              </div>
-              <div class="grow" />
-              <IconButton name="logout" href="/logout" />
-            </div>
-          </Suspense>
-        </ButtonBase>
+      <div class="m-4 mt-0 flex flex-col gap-2">
+        <Button href="https://useradmin.konik.ai/login" onClick={onClose}>
+          Stable Useradmin
+        </Button>
+        <Button color="text" leading={<Icon name="logout" />} href="/logout" onClick={onClose}>
+          Log out
+        </Button>
       </div>
     </>
   )

@@ -1,7 +1,7 @@
-import { createResource, For, Show, createSignal } from 'solid-js'
-import type { JSX, VoidComponent, Resource } from 'solid-js'
+import { createEffect, createResource, createSignal, Show } from 'solid-js'
+import type { Resource, VoidComponent } from 'solid-js'
 
-import { getDevice, getDeviceUsers, grantDeviceReadPermission, removeDeviceReadPermission, unpairDevice } from '~/api/devices'
+import { getDevice, getDevices, setDeviceAlias, unpairDevice } from '~/api/devices'
 import TextField from '~/components/material/TextField'
 import type { Device } from '~/api/types'
 
@@ -23,8 +23,42 @@ type PrimeActivityProps = {
 }
 
 const DeviceSettingsForm: VoidComponent<{ dongleId: string; device: Resource<Device> }> = (props) => {
-  const [deviceName] = createResource(props.device, getDeviceName)
-  const [deviceUsers, { refetch: refetchDeviceUsers }] = createResource(() => props.dongleId, getDeviceUsers)
+  const [myDevices] = createResource(getDevices)
+
+  const ownerDevice = () => myDevices()?.find((d) => d.dongle_id === props.dongleId)
+  const isOwner = () => !!ownerDevice()?.is_owner
+
+  const [aliasDraft, setAliasDraft] = createSignal('')
+  const [aliasSaved, setAliasSaved] = createSignal<string | undefined>(undefined)
+  const deviceTitle = () => {
+    const d = ownerDevice() ?? props.device()
+    if (!d) return ''
+    const alias = aliasSaved()
+    return getDeviceName({ ...d, alias: alias ?? d.alias })
+  }
+
+  createEffect(() => {
+    const d = ownerDevice() ?? props.device()
+    if (!d) return
+    setAliasDraft(d.alias ?? '')
+    setAliasSaved(d.alias ?? '')
+  })
+
+  const [renameLoading, setRenameLoading] = createSignal(false)
+  const [renameError, setRenameError] = createSignal<string | undefined>(undefined)
+  const saveAlias = async () => {
+    if (!isOwner()) return
+    setRenameError(undefined)
+    setRenameLoading(true)
+    try {
+      const updated = await setDeviceAlias(props.dongleId, aliasDraft().trim())
+      setAliasSaved(updated.alias)
+    } catch (err) {
+      setRenameError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRenameLoading(false)
+    }
+  }
 
   const [unpair, unpairData] = useAction(async () => {
     const { success } = await unpairDevice(props.dongleId)
@@ -33,56 +67,25 @@ const DeviceSettingsForm: VoidComponent<{ dongleId: string; device: Resource<Dev
     }
   })
 
-  const [shareLoading, setShareLoading] = createSignal(false)
-  const share: JSX.EventHandler<HTMLFormElement, SubmitEvent> = async (event) => {
-    event.preventDefault()
-    setShareLoading(true)
-    const formData = new FormData(event.target as HTMLFormElement)
-    const email = formData.get('email') as string
-    const { success } = await grantDeviceReadPermission(props.dongleId, email)
-    setShareLoading(false)
-    if (success) {
-      refetchDeviceUsers()
-      formRef?.reset()
-    }
-  }
-
-  const [unshareLoading, setUnshareLoading] = createSignal(false)
-
-  const unshare = async (email: string) => {
-    setUnshareLoading(true)
-    const { success } = await removeDeviceReadPermission(props.dongleId, email)
-    if (success) refetchDeviceUsers()
-    setUnshareLoading(false)
-  }
-
-  let formRef: HTMLFormElement | undefined
-
   return (
     <div class="flex flex-col gap-4">
-      <h2 class="text-lg">{deviceName()}</h2>
+      <h2 class="text-lg">{deviceTitle()}</h2>
 
-      <Show when={props.device()?.is_owner}>
+      <Show when={isOwner()}>
         <div class="flex flex-col gap-2">
-          <h3 class="text-md">{(deviceUsers() || []).length - 1 > 0 ? 'shared with:' : 'share device'}</h3>
-          <For each={deviceUsers()} fallback={<div>loading</div>}>
-            {(user) => (
-              <Show when={user.permission !== 'owner'}>
-                <div class="flex items-center gap-2 justify-between">
-                  <div>{user.email}</div>
-                  <Button color="error" onClick={() => unshare(user.email)} loading={unshareLoading()}>
-                    <Icon name="delete" />
-                  </Button>
-                </div>
-              </Show>
-            )}
-          </For>
-          <form onSubmit={share} class="flex items-center gap-2 justify-between" method="post" ref={formRef}>
-            <TextField label="email" id="email-box" name="email" class="w-full" />
-            <Button color="secondary" type="submit" loading={shareLoading()}>
-              <Icon name="share" />
+          <h3 class="text-md">Rename device</h3>
+          <div class="flex items-center gap-2">
+            <TextField class="w-full" label="Device name" value={aliasDraft()} onInput={(e) => setAliasDraft(e.currentTarget.value)} />
+            <Button color="secondary" leading={<Icon name="check" />} onClick={saveAlias} loading={renameLoading()}>
+              Save
             </Button>
-          </form>
+          </div>
+          <Show when={renameError()}>
+            <div class="flex gap-2 rounded-sm bg-surface-container-high p-2 text-sm text-on-surface">
+              <Icon class="text-error" name="error" size="20" />
+              {renameError()}
+            </div>
+          </Show>
         </div>
       </Show>
 

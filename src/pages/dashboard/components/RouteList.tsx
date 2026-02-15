@@ -6,13 +6,14 @@ dayjs.extend(utc)
 dayjs.extend(timezone)
 
 import { fetcher } from '~/api'
-import { getRouteStatistics } from '~/api/derived'
+import { generateRouteStatistics, getTimelineEvents } from '~/api/derived'
 import Card, { CardContent, CardHeader } from '~/components/material/Card'
 import Icon from '~/components/material/Icon'
+import RouteEventStrip from '~/components/RouteEventStrip'
 import RouteStatisticsBar from '~/components/RouteStatisticsBar'
 import { getPlaceName } from '~/map/geocode'
 import type { Route } from '~/api/types'
-import { dateTimeToColorBetween, parseTimestamp } from '~/utils/format'
+import { parseTimestamp } from '~/utils/format'
 
 interface RouteCardProps {
   route: Route
@@ -20,9 +21,27 @@ interface RouteCardProps {
 
 const RouteCard: VoidComponent<RouteCardProps> = (props) => {
   const startTime = () => parseTimestamp(props.route.start_time!).local()
-  const endTime = () => parseTimestamp(props.route.end_time!).local()
-  const color = () => dateTimeToColorBetween(startTime().toDate(), endTime().toDate(), [30, 57, 138], [218, 161, 28])
-  const [statistics] = createResource(() => props.route, getRouteStatistics)
+  const [events] = createResource(() => props.route, getTimelineEvents, { initialValue: [] })
+  const statistics = () => generateRouteStatistics(props.route, events())
+
+  const endTime = () => {
+    const start = startTime()
+    const rawEnd = props.route.end_time
+
+    // Some very short routes come back with `end_time: 0` which renders as 4:00 PM (epoch) in local time.
+    if (rawEnd !== null && rawEnd !== undefined && rawEnd !== 0) {
+      const parsed = parseTimestamp(rawEnd).local()
+      if (parsed.isValid() && parsed.isAfter(start)) return parsed
+    }
+
+    // Fall back to derived duration when end_time is missing/invalid.
+    if (events.state === 'ready' || events.state === 'refreshing') {
+      const durMs = statistics().routeDurationMs
+      if (Number.isFinite(durMs) && durMs > 0) return start.add(durMs, 'millisecond')
+    }
+
+    return start
+  }
   const [location] = createResource(async () => {
     const startPos = [props.route.start_lng || 0, props.route.start_lat || 0]
     const endPos = [props.route.end_lng || 0, props.route.end_lat || 0]
@@ -41,7 +60,7 @@ const RouteCard: VoidComponent<RouteCardProps> = (props) => {
         subhead={<Suspense fallback={<div class="h-[20px] w-auto skeleton-loader rounded-xs" />}>{location()}</Suspense>}
         trailing={
           <Suspense>
-            <Show when={statistics()?.userFlags}>
+            <Show when={(events.state === 'ready' || events.state === 'refreshing') && statistics().userFlags}>
               <div class="flex items-center justify-center rounded-full p-1 border-amber-300 border-2">
                 <Icon class="text-yellow-300" size="24" name="flag" filled />
               </div>
@@ -51,9 +70,12 @@ const RouteCard: VoidComponent<RouteCardProps> = (props) => {
       />
 
       <CardContent>
-        <RouteStatisticsBar route={props.route} statistics={statistics} />
+        <RouteStatisticsBar
+          route={props.route}
+          statistics={events.state === 'ready' || events.state === 'refreshing' ? statistics() : undefined}
+        />
       </CardContent>
-      <div class="h-2.5 w-full" style={{ background: color() }} />
+      <RouteEventStrip class="h-2.5 w-full" route={props.route} events={events()} />
     </Card>
   )
 }
@@ -75,18 +97,43 @@ const Sentinel = (props: { onTrigger: () => void }) => {
 const PAGE_SIZE = 10
 
 const RouteList: VoidComponent<{ dongleId: string }> = (props) => {
+  const seenRoutes = new Set<string>()
+  // Use offset-based pagination to avoid backend cursor inconsistencies across deployments.
   const endpoint = () => `/v1/devices/${props.dongleId}/routes?limit=${PAGE_SIZE}`
-  const getKey = (previousPageData?: Route[]): string | undefined => {
-    if (!previousPageData) return endpoint()
-    if (previousPageData.length === 0) return undefined
-    return `${endpoint()}&created_before=${previousPageData.at(-1)!.create_time}`
+  const [hasMore, setHasMore] = createSignal(true)
+
+  const routeKey = (route: Route): string => {
+    // `fullname` is stable and unique for a route.
+    if (route.fullname) return route.fullname
+    return `${route.dongle_id}|${route.start_time ?? ''}|${route.end_time ?? ''}|${route.create_time ?? ''}`
   }
+
+  const getKey = (page: number): string => (page > 0 ? `${endpoint()}&offset=${page * PAGE_SIZE}` : endpoint())
+
   const getPage = (page: number): Promise<Route[]> => {
     if (pages[page] === undefined) {
       pages[page] = (async () => {
-        const previousPageData = page > 0 ? await getPage(page - 1) : undefined
-        const key = getKey(previousPageData)
-        return key ? fetcher<Route[]>(key).catch(() => []) : []
+        const fetched = await fetcher<Route[]>(getKey(page)).catch(() => [])
+        if (fetched.length === 0) {
+          setHasMore(false)
+          return []
+        }
+
+        const unique = fetched.filter((r) => {
+          const k = routeKey(r)
+          if (seenRoutes.has(k)) return false
+          seenRoutes.add(k)
+          return true
+        })
+
+        // If the backend returns only routes we've already seen, we're stuck on a repeated page. Stop.
+        if (unique.length === 0) {
+          setHasMore(false)
+          return []
+        }
+
+        if (fetched.length < PAGE_SIZE) setHasMore(false)
+        return unique
       })()
     }
     return pages[page]
@@ -100,6 +147,9 @@ const RouteList: VoidComponent<{ dongleId: string }> = (props) => {
     if (props.dongleId) {
       pages.length = 0
       setSize(1)
+      setHasMore(true)
+      seenRoutes.clear()
+      prevDayHeader = null
     }
   })
 
@@ -160,7 +210,9 @@ const RouteList: VoidComponent<{ dongleId: string }> = (props) => {
           )
         }}
       </For>
-      <Sentinel onTrigger={() => setSize((size) => size + 1)} />
+      <Show when={hasMore()}>
+        <Sentinel onTrigger={() => setSize((size) => size + 1)} />
+      </Show>
     </div>
   )
 }
