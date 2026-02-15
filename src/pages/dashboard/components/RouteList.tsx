@@ -20,9 +20,28 @@ interface RouteCardProps {
 
 const RouteCard: VoidComponent<RouteCardProps> = (props) => {
   const startTime = () => parseTimestamp(props.route.start_time!).local()
-  const endTime = () => parseTimestamp(props.route.end_time!).local()
-  const color = () => dateTimeToColorBetween(startTime().toDate(), endTime().toDate(), [30, 57, 138], [218, 161, 28])
   const [statistics] = createResource(() => props.route, getRouteStatistics)
+
+  const endTime = () => {
+    const start = startTime()
+    const rawEnd = props.route.end_time
+
+    // Some very short routes come back with `end_time: 0` which renders as 4:00 PM (epoch) in local time.
+    if (rawEnd !== null && rawEnd !== undefined && rawEnd !== 0) {
+      const parsed = parseTimestamp(rawEnd).local()
+      if (parsed.isValid() && parsed.isAfter(start)) return parsed
+    }
+
+    // Fall back to derived duration when end_time is missing/invalid.
+    if (statistics.state === 'ready' || statistics.state === 'refreshing') {
+      const durMs = statistics().routeDurationMs
+      if (Number.isFinite(durMs) && durMs > 0) return start.add(durMs, 'millisecond')
+    }
+
+    return start
+  }
+
+  const color = () => dateTimeToColorBetween(startTime().toDate(), endTime().toDate(), [30, 57, 138], [218, 161, 28])
   const [location] = createResource(async () => {
     const startPos = [props.route.start_lng || 0, props.route.start_lat || 0]
     const endPos = [props.route.end_lng || 0, props.route.end_lat || 0]
