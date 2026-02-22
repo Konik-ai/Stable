@@ -1,6 +1,6 @@
 import polyline from '@mapbox/polyline'
 
-import { MAP_STYLE_OPTIONS, MAPBOX_TOKEN, type BaseMapStyleKey, type MapStyleOption } from './config'
+import { MAP_STYLE_OPTIONS, getMapboxToken, primeMapboxToken, type BaseMapStyleKey, type MapStyleOption } from './config'
 import { getThemeId } from '~/theme'
 
 export type Coords = [number, number][]
@@ -43,15 +43,23 @@ export function getPathStaticMapUrl(
   opacity: number = 1,
 ): string {
   const style = resolveStyle(themeId, styleKey)
+  const token = getMapboxToken()
+  if (!token) {
+    void primeMapboxToken()
+  }
   const hidpiStr = hidpi ? '@2x' : ''
   const encodedPolyline = polyline.encode(prepareCoords(coords, POLYLINE_SAMPLE_SIZE), POLYLINE_PRECISION)
   const path = `path-${strokeWidth}+${color}-${opacity}(${encodeURIComponent(encodedPolyline)})`
-  return `https://api.mapbox.com/styles/v1/${style.owner}/${style.id}/static/${path}/auto/${width}x${height}${hidpiStr}?logo=false&attribution=false&padding=30,30,30,30&access_token=${MAPBOX_TOKEN}`
+  return `https://api.mapbox.com/styles/v1/${style.owner}/${style.id}/static/${path}/auto/${width}x${height}${hidpiStr}?logo=false&attribution=false&padding=30,30,30,30&access_token=${token}`
 }
 
 export function getTileUrl(styleKey?: MapStyleChoice): string {
   const themeId = getThemeId()
   const style = resolveStyle(themeId, styleKey)
+  const token = getMapboxToken()
+  if (!token) {
+    void primeMapboxToken()
+  }
 
-  return `https://api.mapbox.com/styles/v1/${style.owner}/${style.id}/tiles/256/{z}/{x}/{y}@2x?access_token=${MAPBOX_TOKEN}`
+  return `https://api.mapbox.com/styles/v1/${style.owner}/${style.id}/tiles/256/{z}/{x}/{y}@2x?access_token=${token}`
 }

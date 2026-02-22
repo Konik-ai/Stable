@@ -6,6 +6,7 @@ import { render } from 'solid-js/web'
 import 'solid-devtools'
 import App from './App'
 import './pwa.ts'
+import { primeMapboxToken, startMapboxTokenRefresh } from '~/map/config'
 
 const environment = import.meta.env.VITE_SENTRY_ENVIRONMENT as string | undefined
 Sentry.init({
@@ -18,4 +19,10 @@ const root = document.getElementById('root')
 
 if (!root) throw new Error('No #root element found in the DOM.')
 
-render(() => <App />, root)
+const bootstrap = async () => {
+  await primeMapboxToken()
+  startMapboxTokenRefresh()
+  render(() => <App />, root)
+}
+
+void bootstrap()

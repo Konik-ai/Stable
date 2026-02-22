@@ -1,8 +1,5 @@
 import type { FeatureCollection, Point } from 'geojson'
 
-/**
- * @see {@link https://docs.mapbox.com/api/search/geocoding/#geocoding-response-object}
- */
 export interface ReverseGeocodingResponse extends FeatureCollection<Point, ReverseGeocodingFeatureProperties> {
   attribution: string
 }
@@ -18,9 +15,6 @@ interface ReverseGeocodingFeatureProperties {
   context: ReverseGeocodingContextObject
 }
 
-/**
- * @see {@link https://docs.mapbox.com/api/search/geocoding/#the-context-object}
- */
 interface ReverseGeocodingContextObject<S = ReverseGeocodingContextSubObject> {
   country?: S & {
     country_code: string
@@ -44,4 +38,16 @@ interface ReverseGeocodingContextObject<S = ReverseGeocodingContextSubObject> {
 
 interface ReverseGeocodingContextSubObject {
   name: string
+}
+
+export interface ForwardGeocodingResponse extends FeatureCollection<Point, ForwardGeocodingFeatureProperties> {
+  attribution: string
+}
+
+export type ForwardGeocodingFeature = ForwardGeocodingResponse['features'][number]
+
+interface ForwardGeocodingFeatureProperties {
+  name?: string
+  place_formatted?: string
+  full_address?: string
 }

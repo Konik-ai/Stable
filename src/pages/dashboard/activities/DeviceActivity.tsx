@@ -7,6 +7,7 @@ import Icon from '~/components/material/Icon'
 import IconButton from '~/components/material/IconButton'
 import TopAppBar from '~/components/material/TopAppBar'
 import DeviceLocation from '~/components/DeviceLocation'
+import DeviceDestination from '~/components/DeviceDestination'
 import DeviceStatistics from '~/components/DeviceStatistics'
 import UploadQueue from '~/components/UploadQueue'
 import { getDeviceName } from '~/utils/device'
@@ -18,11 +19,9 @@ type DeviceActivityProps = {
 }
 
 const DeviceActivity: VoidComponent<DeviceActivityProps> = (props) => {
-  // TODO: device should be passed in from DeviceList
   const [device] = createResource(() => props.dongleId, getDevice)
   // Resource as source of another resource blocks component initialization
   const deviceName = () => (device.latest ? getDeviceName(device.latest) : '')
-  // TODO: remove this. if we're listing the routes for a device you should always be a user, this is for viewing public routes which are being removed
   const isDeviceUser = () => (device.loading ? true : device.latest?.is_owner || device.latest?.alias !== SHARED_DEVICE)
   const [queueVisible, setQueueVisible] = createSignal(false)
 
@@ -45,6 +44,9 @@ const DeviceActivity: VoidComponent<DeviceActivityProps> = (props) => {
           <Suspense fallback={<div class="h-[240px] skeleton-loader size-full" />}>
             <DeviceLocation dongleId={props.dongleId} deviceName={deviceName()!} />
           </Suspense>
+          <Show when={isDeviceUser()}>
+            <DeviceDestination dongleId={props.dongleId} />
+          </Show>
           <div class="flex items-center justify-between p-4">
             <Suspense fallback={<div class="h-[32px] skeleton-loader size-full rounded-xs" />}>
               <div class="inline-flex items-center gap-2">
