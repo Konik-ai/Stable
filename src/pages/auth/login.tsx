@@ -17,7 +17,7 @@ export default function Login() {
 
         <div class="flex flex-col items-center gap-2 text-center">
           <h1 class="text-2xl font-extrabold md:mt-4">Konik Stable</h1>
-          <p class="text-md">Manage your hoofpilot experience.</p>
+          <p class="text-md">Manage your device experience.</p>
         </div>
 
         <div class="flex flex-col items-stretch gap-4 self-stretch">
