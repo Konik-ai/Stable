@@ -12,25 +12,163 @@ const POLL_ACTIVE_MS = 40
 const POLL_IDLE_MS = 200
 const ACTIVE_WINDOW_MS = 2000
 
-// biome-ignore lint/complexity/useRegexLiterals: regex literals with ESC codes trigger lint about control characters; keep as strings.
-const RE_OSC = new RegExp('\\x1B\\][^\\x07\\x1B]*(?:\\x07|\\x1B\\\\)', 'g')
-// biome-ignore lint/complexity/useRegexLiterals: regex literals with ESC codes trigger lint about control characters; keep as strings.
-const RE_CSI = new RegExp('\\x1B\\[[0-?]*[ -/]*[@-~]', 'g')
-// biome-ignore lint/complexity/useRegexLiterals: regex literals with ESC codes trigger lint about control characters; keep as strings.
-const RE_ESC = new RegExp('\\x1B[@-_]', 'g')
-// biome-ignore lint/complexity/useRegexLiterals: regex literals with ESC codes trigger lint about control characters; keep as strings.
-const RE_CTRL = new RegExp('[\\x00-\\x08\\x0B-\\x1F\\x7F]', 'g')
+// --- ANSI color support ---
 
-const stripTerminalControlSequences = (value: string) =>
-  value
-    // OSC sequences (e.g. title changes): ESC ] ... BEL or ESC \
-    .replace(RE_OSC, '')
-    // CSI sequences (colors, cursor movement, bracketed paste toggles, etc)
-    .replace(RE_CSI, '')
-    // Remaining single-character ESC sequences
-    .replace(RE_ESC, '')
-    // Control chars except newline and tab
-    .replace(RE_CTRL, '')
+const PALETTE_16: string[] = [
+  '#000000',
+  '#aa0000',
+  '#00aa00',
+  '#aa5500',
+  '#0000aa',
+  '#aa00aa',
+  '#00aaaa',
+  '#aaaaaa',
+  '#555555',
+  '#ff5555',
+  '#55ff55',
+  '#ffff55',
+  '#5555ff',
+  '#ff55ff',
+  '#55ffff',
+  '#ffffff',
+]
+
+const PALETTE_256: string[] = (() => {
+  const c = [...PALETTE_16]
+  for (let r = 0; r < 6; r++) {
+    for (let g = 0; g < 6; g++) {
+      for (let b = 0; b < 6; b++) {
+        const rv = r ? r * 40 + 55 : 0
+        const gv = g ? g * 40 + 55 : 0
+        const bv = b ? b * 40 + 55 : 0
+        c.push(`#${rv.toString(16).padStart(2, '0')}${gv.toString(16).padStart(2, '0')}${bv.toString(16).padStart(2, '0')}`)
+      }
+    }
+  }
+  for (let i = 0; i < 24; i++) {
+    const v = (i * 10 + 8).toString(16).padStart(2, '0')
+    c.push(`#${v}${v}${v}`)
+  }
+  return c
+})()
+
+interface SgrState {
+  bold: boolean
+  dim: boolean
+  italic: boolean
+  underline: boolean
+  fg: string | null
+  bg: string | null
+}
+
+const resetSgr = (s: SgrState) => {
+  s.bold = false
+  s.dim = false
+  s.italic = false
+  s.underline = false
+  s.fg = null
+  s.bg = null
+}
+
+const sgrHasStyle = (s: SgrState) => s.bold || s.dim || s.italic || s.underline || s.fg !== null || s.bg !== null
+
+const sgrToStyle = (s: SgrState): string => {
+  const p: string[] = []
+  if (s.bold) p.push('font-weight:bold')
+  if (s.dim) p.push('opacity:0.5')
+  if (s.italic) p.push('font-style:italic')
+  if (s.underline) p.push('text-decoration:underline')
+  if (s.fg) p.push(`color:${s.fg}`)
+  if (s.bg) p.push(`background-color:${s.bg}`)
+  return p.join(';')
+}
+
+function applySgrParams(paramStr: string, state: SgrState) {
+  const nums = paramStr === '' ? [0] : paramStr.split(';').map(Number)
+  let i = 0
+  while (i < nums.length) {
+    const n = nums[i]
+    if (n === 0) resetSgr(state)
+    else if (n === 1) state.bold = true
+    else if (n === 2) state.dim = true
+    else if (n === 3) state.italic = true
+    else if (n === 4) state.underline = true
+    else if (n === 22) {
+      state.bold = false
+      state.dim = false
+    } else if (n === 23) state.italic = false
+    else if (n === 24) state.underline = false
+    else if (n >= 30 && n <= 37) state.fg = PALETTE_16[n - 30]
+    else if (n === 38) {
+      if (nums[i + 1] === 5 && nums[i + 2] !== undefined) {
+        state.fg = PALETTE_256[nums[i + 2]] ?? null
+        i += 2
+      } else if (nums[i + 1] === 2 && nums[i + 4] !== undefined) {
+        state.fg = `rgb(${nums[i + 2]},${nums[i + 3]},${nums[i + 4]})`
+        i += 4
+      }
+    } else if (n === 39) state.fg = null
+    else if (n >= 40 && n <= 47) state.bg = PALETTE_16[n - 40]
+    else if (n === 48) {
+      if (nums[i + 1] === 5 && nums[i + 2] !== undefined) {
+        state.bg = PALETTE_256[nums[i + 2]] ?? null
+        i += 2
+      } else if (nums[i + 1] === 2 && nums[i + 4] !== undefined) {
+        state.bg = `rgb(${nums[i + 2]},${nums[i + 3]},${nums[i + 4]})`
+        i += 4
+      }
+    } else if (n === 49) state.bg = null
+    else if (n >= 90 && n <= 97) state.fg = PALETTE_16[n - 90 + 8]
+    else if (n >= 100 && n <= 107) state.bg = PALETTE_16[n - 100 + 8]
+    i++
+  }
+}
+
+const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+function ansiToHtml(raw: string): string {
+  const state: SgrState = { bold: false, dim: false, italic: false, underline: false, fg: null, bg: null }
+  let html = ''
+  let inSpan = false
+
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: matching ANSI ESC sequences requires control chars
+  const re = /\x1B\[([\d;]*)m|([^\x1B]+)|./g
+  let m = re.exec(raw)
+
+  while (m !== null) {
+    if (m[2] !== undefined) {
+      // Text chunk
+      if (sgrHasStyle(state) && !inSpan) {
+        html += `<span style="${sgrToStyle(state)}">`
+        inSpan = true
+      } else if (!sgrHasStyle(state) && inSpan) {
+        html += '</span>'
+        inSpan = false
+      }
+      html += escapeHtml(m[2])
+    } else if (m[1] !== undefined) {
+      // SGR sequence
+      if (inSpan) {
+        html += '</span>'
+        inSpan = false
+      }
+      applySgrParams(m[1], state)
+    }
+    // else: stray ESC or char, skip
+    m = re.exec(raw)
+  }
+  if (inSpan) html += '</span>'
+  return html
+}
+
+// Strip everything except SGR sequences from decoded terminal output
+const RE_STRIP = new RegExp(
+  '\\x1B\\][^\\x07\\x1B]*(?:\\x07|\\x1B\\\\)' + // OSC sequences
+    '|\\x1B\\[[0-?]*[ -/]*[@-ln-~]' + // Non-SGR CSI sequences (final byte != m)
+    '|\\x1B[^\\[\\]]' + // Other single-char ESC sequences
+    '|[\\x00-\\x08\\x0B-\\x1A\\x1C-\\x1F\\x7F]', // Control chars (keep ESC 0x1B, LF 0x0A, TAB 0x09)
+  'g',
+)
 
 const decodeBase64 = (value: string) => {
   if (!value) return ''
@@ -39,9 +177,29 @@ const decodeBase64 = (value: string) => {
   for (let i = 0; i < raw.length; i++) {
     bytes[i] = raw.charCodeAt(i)
   }
-  const decoded = new TextDecoder().decode(bytes).replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-  return stripTerminalControlSequences(decoded)
+  return new TextDecoder().decode(bytes).replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(RE_STRIP, '')
 }
+
+// --- Key mapping ---
+
+const SPECIAL_KEYS: Record<string, string> = {
+  Enter: '\r',
+  Backspace: '\x7f',
+  Tab: '\t',
+  Escape: '\x1b',
+  ArrowUp: '\x1b[A',
+  ArrowDown: '\x1b[B',
+  ArrowRight: '\x1b[C',
+  ArrowLeft: '\x1b[D',
+  Home: '\x1b[H',
+  End: '\x1b[F',
+  Delete: '\x1b[3~',
+  Insert: '\x1b[2~',
+  PageUp: '\x1b[5~',
+  PageDown: '\x1b[6~',
+}
+
+// --- Terminal component ---
 
 const RemoteSshTerminal: VoidComponent<{ dongleId: string }> = (props) => {
   const { authToken } = useDevicePinAuth()
@@ -73,15 +231,13 @@ const RemoteSshTerminal: VoidComponent<{ dongleId: string }> = (props) => {
   const appendOutput = (text: string) => {
     if (!text) return
     markActive()
-    setOutput((prev) => {
-      const next = (prev + text).slice(-MAX_BUFFER)
-      return next
-    })
-    queueMicrotask(() => {
-      if (terminalRef) {
-        terminalRef.scrollTop = terminalRef.scrollHeight
-      }
-    })
+    const atBottom = terminalRef ? terminalRef.scrollHeight - terminalRef.scrollTop - terminalRef.clientHeight < 40 : true
+    setOutput((prev) => (prev + text).slice(-MAX_BUFFER))
+    if (atBottom) {
+      queueMicrotask(() => {
+        if (terminalRef) terminalRef.scrollTop = terminalRef.scrollHeight
+      })
+    }
   }
 
   const getTermSize = () => {
@@ -131,14 +287,10 @@ const RemoteSshTerminal: VoidComponent<{ dongleId: string }> = (props) => {
     pollInFlight = true
     try {
       const resp = await remoteSshRead(props.dongleId, sid, 262_144, authToken())
-      if (resp.error) {
-        throw new Error(resp.error)
-      }
+      if (resp.error) throw new Error(resp.error)
       const result = resp.result
       if (!result) return
-      if (!result.success) {
-        throw new Error(result.error || 'Remote SSH disabled')
-      }
+      if (!result.success) throw new Error(result.error || 'Remote SSH disabled')
       appendOutput(decodeBase64(result.data))
       if (result.closed) {
         setExitCode(result.exitCode)
@@ -159,8 +311,7 @@ const RemoteSshTerminal: VoidComponent<{ dongleId: string }> = (props) => {
 
   const flushWrites = () => {
     const sid = sessionId()
-    if (!sid || !connected()) return
-    if (!pendingWrite) return
+    if (!sid || !connected() || !pendingWrite) return
 
     const chunk = pendingWrite
     pendingWrite = ''
@@ -169,13 +320,8 @@ const RemoteSshTerminal: VoidComponent<{ dongleId: string }> = (props) => {
       .then(async () => {
         markActive()
         const resp = await remoteSshWrite(props.dongleId, sid, chunk, authToken())
-        if (resp.error) {
-          throw new Error(resp.error)
-        }
-        if (resp.result && !resp.result.success) {
-          throw new Error(resp.result.error || 'Remote SSH disabled')
-        }
-        // Try to pull echoed output asap after sending input.
+        if (resp.error) throw new Error(resp.error)
+        if (resp.result && !resp.result.success) throw new Error(resp.result.error || 'Remote SSH disabled')
         schedulePoll(true)
       })
       .catch(async (err) => {
@@ -184,15 +330,13 @@ const RemoteSshTerminal: VoidComponent<{ dongleId: string }> = (props) => {
       })
       .finally(() => {
         if (connected() && pendingWrite) {
-          // If more keys came in while sending, flush again quickly.
           writeTimer = window.setTimeout(flushWrites, 0)
         }
       })
   }
 
   const queueWrite = (data: string) => {
-    if (!data) return
-    if (!connected()) return
+    if (!data || !connected()) return
     markActive()
     pendingWrite += data
     if (writeTimer === undefined) {
@@ -212,16 +356,10 @@ const RemoteSshTerminal: VoidComponent<{ dongleId: string }> = (props) => {
     try {
       const { cols, rows } = getTermSize()
       const resp = await remoteSshStart(props.dongleId, cols, rows, authToken())
-      if (resp.error) {
-        throw new Error(resp.error)
-      }
-      if (resp.result && !resp.result.success) {
-        throw new Error(resp.result.error || 'Remote SSH disabled')
-      }
+      if (resp.error) throw new Error(resp.error)
+      if (resp.result && !resp.result.success) throw new Error(resp.result.error || 'Remote SSH disabled')
       const sid = resp.result?.sessionId
-      if (!sid) {
-        throw new Error('Device did not return a session id')
-      }
+      if (!sid) throw new Error('Device did not return a session id')
       setSessionId(sid)
       setConnected(true)
       markActive()
@@ -241,52 +379,40 @@ const RemoteSshTerminal: VoidComponent<{ dongleId: string }> = (props) => {
     }
   }
 
+  const handlePaste = (e: ClipboardEvent) => {
+    if (!connected()) return
+    e.preventDefault()
+    const text = (e.clipboardData?.getData('text/plain') || '').replace(/[\r\n]+$/, '')
+    if (text) queueWrite(text)
+  }
+
   const handleKeyDown = (e: KeyboardEvent) => {
     if (!connected()) return
 
-    if (e.key === 'Enter') {
+    // Special keys (Enter, Backspace, arrows, Home, End, Delete, etc.)
+    const seq = SPECIAL_KEYS[e.key]
+    if (seq) {
+      // In textarea with content (composition), let native Backspace work
+      if (e.key === 'Backspace' && e.target instanceof HTMLTextAreaElement && e.target.value !== '') return
       e.preventDefault()
-      queueWrite('\r')
+      queueWrite(seq)
       return
     }
-    if (e.key === 'Backspace') {
-      e.preventDefault()
-      queueWrite('\x7f')
-      return
-    }
-    if (e.key === 'Tab') {
-      e.preventDefault()
-      queueWrite('\t')
-      return
-    }
-    if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      queueWrite('\x1b[A')
-      return
-    }
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      queueWrite('\x1b[B')
-      return
-    }
-    if (e.key === 'ArrowRight') {
-      e.preventDefault()
-      queueWrite('\x1b[C')
-      return
-    }
-    if (e.key === 'ArrowLeft') {
-      e.preventDefault()
-      queueWrite('\x1b[D')
-      return
-    }
+
+    // Ctrl combinations
     if (e.ctrlKey && e.key.length === 1) {
+      const upper = e.key.toUpperCase()
+      if (upper === 'V') return // let browser paste fire
+      if (upper === 'C' && window.getSelection()?.toString()) return // let browser copy
       e.preventDefault()
-      const code = e.key.toUpperCase().charCodeAt(0)
+      const code = upper.charCodeAt(0)
       if (code >= 64 && code <= 95) {
         queueWrite(String.fromCharCode(code - 64))
       }
       return
     }
+
+    // Regular characters (skip if Ctrl/Meta held for browser shortcuts)
     if (!e.ctrlKey && !e.metaKey && e.key.length === 1) {
       e.preventDefault()
       queueWrite(e.key)
@@ -334,30 +460,24 @@ const RemoteSshTerminal: VoidComponent<{ dongleId: string }> = (props) => {
           ref={terminalRef}
           tabIndex={0}
           onKeyDown={handleKeyDown}
-          onPointerDown={() => {
+          onClick={() => {
             if (!coarsePointer()) return
             queueMicrotask(() => inputRef?.focus())
           }}
-          onTouchStart={() => {
-            if (!coarsePointer()) return
-            queueMicrotask(() => inputRef?.focus())
-          }}
-          onPaste={(e) => {
-            if (!connected()) return
-            e.preventDefault()
-            const text = e.clipboardData?.getData('text/plain') || ''
-            if (text) queueWrite(text)
-          }}
+          onPaste={handlePaste}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
-          class="h-[65vh] overflow-auto rounded-lg border border-outline-variant bg-black p-4 font-mono text-sm text-green-300 outline-none focus:ring-2 focus:ring-primary"
+          class="h-[65vh] select-text overflow-auto rounded-lg border border-outline-variant bg-black p-4 font-mono text-sm text-green-300 outline-none focus:ring-2 focus:ring-primary"
         >
-          <pre class="whitespace-pre-wrap break-words">
-            {output()}
-            <Show when={connected()}>
-              <span class={focused() ? 'term-cursor term-cursor-active' : 'term-cursor term-cursor-inactive'}>{'\u00a0'}</span>
-            </Show>
-          </pre>
+          <pre
+            class="whitespace-pre-wrap break-words"
+            innerHTML={
+              ansiToHtml(output()) +
+              (connected()
+                ? `<span class="${focused() ? 'term-cursor term-cursor-active' : 'term-cursor term-cursor-inactive'}">\u00a0</span>`
+                : '')
+            }
+          />
         </div>
 
         <textarea
@@ -367,7 +487,7 @@ const RemoteSshTerminal: VoidComponent<{ dongleId: string }> = (props) => {
           autocomplete="off"
           spellcheck={false}
           inputmode="text"
-          class="absolute inset-0 opacity-0"
+          class="pointer-events-none absolute inset-0 opacity-0"
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           onCompositionStart={() => {
@@ -376,49 +496,8 @@ const RemoteSshTerminal: VoidComponent<{ dongleId: string }> = (props) => {
           onCompositionEnd={() => {
             composing = false
           }}
-          onKeyDown={(e) => {
-            if (!connected()) return
-
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              queueWrite('\r')
-              return
-            }
-
-            // If the textarea is empty, backspace won't trigger an input event; send DEL explicitly.
-            if (e.key === 'Backspace' && e.currentTarget.value === '') {
-              e.preventDefault()
-              queueWrite('\x7f')
-              return
-            }
-
-            if (e.key === 'Tab') {
-              e.preventDefault()
-              queueWrite('\t')
-              return
-            }
-
-            if (e.key === 'ArrowUp') {
-              e.preventDefault()
-              queueWrite('\x1b[A')
-              return
-            }
-            if (e.key === 'ArrowDown') {
-              e.preventDefault()
-              queueWrite('\x1b[B')
-              return
-            }
-            if (e.key === 'ArrowRight') {
-              e.preventDefault()
-              queueWrite('\x1b[C')
-              return
-            }
-            if (e.key === 'ArrowLeft') {
-              e.preventDefault()
-              queueWrite('\x1b[D')
-              return
-            }
-          }}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           onInput={(e) => {
             if (!connected()) {
               e.currentTarget.value = ''
