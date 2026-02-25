@@ -47,7 +47,7 @@ export default function Login() {
         </div>
 
         <div class="flex justify-between gap-4">
-          <p class="text-sm xs:text-md">Make sure to sign in with the same account if you have previously paired your Konik device.</p>
+          <p class="text-sm xs:text-md">Make sure to sign in with the same account if you have previously paired your device.</p>
 
           <img src="/images/icon-comma-three-light.svg" alt="" width={32} height={32} />
         </div>

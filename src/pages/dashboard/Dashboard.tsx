@@ -47,7 +47,7 @@ const DashboardDrawer: VoidComponent<{ devices: Device[] | undefined }> = (props
       </Button>
       <div class="m-4 mt-0 flex flex-col gap-2">
         <Button href="https://useradmin.konik.ai/login" onClick={onClose}>
-          Stable Useradmin
+          Useradmin
         </Button>
         <Button color="text" leading={<Icon name="logout" />} href="/logout" onClick={onClose}>
           Log out
