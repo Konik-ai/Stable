@@ -1,10 +1,12 @@
-import { createResource } from 'solid-js'
+import { createResource, createSignal, onCleanup } from 'solid-js'
 import type { VoidComponent } from 'solid-js'
 
 import { getPeripheralState } from '~/api/athena'
 import { getDevice, getDeviceStats } from '~/api/devices'
 import { formatDistance, formatDuration } from '~/utils/format'
 import StatisticBar from './StatisticBar'
+
+const VOLTAGE_POLL_MS = 30_000
 
 const DeviceStatistics: VoidComponent<{ class?: string; dongleId: string }> = (props) => {
   const [statistics] = createResource(() => props.dongleId, getDeviceStats)
@@ -16,10 +18,19 @@ const DeviceStatistics: VoidComponent<{ class?: string; dongleId: string }> = (p
     return st?.statsDistanceTraveled ?? st?.distance ?? st?.length
   }
 
+  const [voltageTick, setVoltageTick] = createSignal(0)
   const [peripheralState] = createResource(
-    () => (device()?.is_online ? props.dongleId : undefined),
+    () => {
+      voltageTick()
+      return device()?.is_online ? props.dongleId : undefined
+    },
     (dongleId) => getPeripheralState(dongleId),
   )
+
+  const timer = setInterval(() => {
+    if (device()?.is_online) setVoltageTick((n) => n + 1)
+  }, VOLTAGE_POLL_MS)
+  onCleanup(() => clearInterval(timer))
 
   const batteryVoltage = () => {
     const state = peripheralState()
