@@ -33,6 +33,12 @@ const normalizeAthenaError = (err: unknown): string => {
 
 export const getNetworkMetered = (dongleId: string) => makeAthenaCall<void, boolean>(dongleId, 'getNetworkMetered')
 
+export const getPeripheralState = (dongleId: string) =>
+  makeAthenaCall<{ service: string; timeout: number }, { peripheralState: { voltage: number } }>(dongleId, 'getMessage', {
+    service: 'peripheralState',
+    timeout: 5000,
+  })
+
 export const setRouteViewed = (dongleId: string, route: string) =>
   makeAthenaCall<{ route: string }, void>(dongleId, 'setRouteViewed', { route })
 
@@ -52,24 +58,33 @@ export const setSdpAnswer = (dongleId: string, answer: unknown, authToken?: stri
   makeAthenaCall<{ answer: unknown; authToken?: string }, void>(dongleId, 'setSdpAnswer', { answer, authToken })
 
 export const getIce = (dongleId: string, authToken?: string) =>
-  makeAthenaCall<
-    { authToken?: string },
-    Array<{ candidate: string; sdpMid?: string; sdpMLineIndex?: number }> | { error: boolean }
-  >(dongleId, 'getIce', { authToken })
+  makeAthenaCall<{ authToken?: string }, Array<{ candidate: string; sdpMid?: string; sdpMLineIndex?: number }> | { error: boolean }>(
+    dongleId,
+    'getIce',
+    { authToken },
+  )
 
 export const remoteSshStart = (dongleId: string, cols: number, rows: number, authToken?: string) =>
-  makeAthenaCall<{ cols: number; rows: number; authToken?: string }, { success: boolean; sessionId?: string; error?: string }>(dongleId, 'remoteSshStart', {
-    cols,
-    rows,
-    authToken,
-  })
+  makeAthenaCall<{ cols: number; rows: number; authToken?: string }, { success: boolean; sessionId?: string; error?: string }>(
+    dongleId,
+    'remoteSshStart',
+    {
+      cols,
+      rows,
+      authToken,
+    },
+  )
 
 export const remoteSshWrite = (dongleId: string, sessionId: string, data: string, authToken?: string) =>
-  makeAthenaCall<{ sessionId: string; data: string; authToken?: string }, { success: boolean; error?: string }>(dongleId, 'remoteSshWrite', {
-    sessionId,
-    data,
-    authToken,
-  })
+  makeAthenaCall<{ sessionId: string; data: string; authToken?: string }, { success: boolean; error?: string }>(
+    dongleId,
+    'remoteSshWrite',
+    {
+      sessionId,
+      data,
+      authToken,
+    },
+  )
 
 export const remoteSshRead = (dongleId: string, sessionId: string, maxBytes: number = 65536, authToken?: string) =>
   makeAthenaCall<
@@ -78,24 +93,32 @@ export const remoteSshRead = (dongleId: string, sessionId: string, maxBytes: num
   >(dongleId, 'remoteSshRead', { sessionId, maxBytes, authToken })
 
 export const remoteSshResize = (dongleId: string, sessionId: string, cols: number, rows: number, authToken?: string) =>
-  makeAthenaCall<{ sessionId: string; cols: number; rows: number; authToken?: string }, { success: boolean; error?: string }>(dongleId, 'remoteSshResize', {
-    sessionId,
-    cols,
-    rows,
-    authToken,
-  })
+  makeAthenaCall<{ sessionId: string; cols: number; rows: number; authToken?: string }, { success: boolean; error?: string }>(
+    dongleId,
+    'remoteSshResize',
+    {
+      sessionId,
+      cols,
+      rows,
+      authToken,
+    },
+  )
 
 export const remoteSshStop = (dongleId: string, sessionId: string, authToken?: string) =>
-  makeAthenaCall<{ sessionId: string; authToken?: string }, { success: boolean; error?: string }>(dongleId, 'remoteSshStop', { sessionId, authToken })
+  makeAthenaCall<{ sessionId: string; authToken?: string }, { success: boolean; error?: string }>(dongleId, 'remoteSshStop', {
+    sessionId,
+    authToken,
+  })
 
 export const remotePinStatus = (dongleId: string) =>
   makeAthenaCall<void, { set: boolean; locked: boolean; lockRemainingS: number }>(dongleId, 'remotePinStatus')
 
 export const remotePinVerify = (dongleId: string, pin: string) =>
-  makeAthenaCall<
-    { pin: string },
-    { success: boolean; token?: string; expiresInS?: number; error?: string; lockRemainingS?: number }
-  >(dongleId, 'remotePinVerify', { pin })
+  makeAthenaCall<{ pin: string }, { success: boolean; token?: string; expiresInS?: number; error?: string; lockRemainingS?: number }>(
+    dongleId,
+    'remotePinVerify',
+    { pin },
+  )
 
 export const remotePinSet = (dongleId: string, pin: string) =>
   makeAthenaCall<{ pin: string }, { success: boolean }>(dongleId, 'remotePinSet', { pin })
