@@ -1,7 +1,15 @@
-import { createEffect, createResource, createSignal, Show } from 'solid-js'
-import type { Resource, VoidComponent } from 'solid-js'
+import { createEffect, createResource, createSignal, For, Show } from 'solid-js'
+import type { JSX, Resource, VoidComponent } from 'solid-js'
 
-import { getDevice, getDevices, setDeviceAlias, unpairDevice } from '~/api/devices'
+import {
+  getDevice,
+  getDeviceUsers,
+  getDevices,
+  grantDeviceReadPermission,
+  removeDeviceReadPermission,
+  setDeviceAlias,
+  unpairDevice,
+} from '~/api/devices'
 import TextField from '~/components/material/TextField'
 import type { Device } from '~/api/types'
 
@@ -24,6 +32,7 @@ type PrimeActivityProps = {
 
 const DeviceSettingsForm: VoidComponent<{ dongleId: string; device: Resource<Device> }> = (props) => {
   const [myDevices] = createResource(getDevices)
+  const [deviceUsers, { refetch: refetchDeviceUsers }] = createResource(props.dongleId, getDeviceUsers)
 
   const ownerDevice = () => myDevices()?.find((d) => d.dongle_id === props.dongleId)
   const isOwner = () => !!ownerDevice()?.is_owner
@@ -67,6 +76,49 @@ const DeviceSettingsForm: VoidComponent<{ dongleId: string; device: Resource<Dev
     }
   })
 
+  const [shareLoading, setShareLoading] = createSignal(false)
+  const [shareError, setShareError] = createSignal<string | undefined>(undefined)
+  let shareFormRef: HTMLFormElement | undefined
+
+  const share: JSX.EventHandler<HTMLFormElement, SubmitEvent> = async (event) => {
+    event.preventDefault()
+    if (!isOwner()) return
+    setShareError(undefined)
+    setShareLoading(true)
+    try {
+      const formData = new FormData(event.currentTarget)
+      const email = String(formData.get('email') || '').trim()
+      if (!email) {
+        setShareError('Email is required')
+        return
+      }
+      const { success } = await grantDeviceReadPermission(props.dongleId, email)
+      if (success) {
+        refetchDeviceUsers()
+        shareFormRef?.reset()
+      }
+    } catch (err) {
+      setShareError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setShareLoading(false)
+    }
+  }
+
+  const [unshareLoadingEmail, setUnshareLoadingEmail] = createSignal<string | null>(null)
+  const unshare = async (email: string) => {
+    if (!isOwner()) return
+    setShareError(undefined)
+    setUnshareLoadingEmail(email)
+    try {
+      const { success } = await removeDeviceReadPermission(props.dongleId, email)
+      if (success) refetchDeviceUsers()
+    } catch (err) {
+      setShareError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setUnshareLoadingEmail(null)
+    }
+  }
+
   return (
     <div class="flex flex-col gap-4">
       <h2 class="text-lg">{deviceTitle()}</h2>
@@ -84,6 +136,42 @@ const DeviceSettingsForm: VoidComponent<{ dongleId: string; device: Resource<Dev
             <div class="flex gap-2 rounded-sm bg-surface-container-high p-2 text-sm text-on-surface">
               <Icon class="text-error" name="error" size="20" />
               {renameError()}
+            </div>
+          </Show>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <h3 class="text-md">{(deviceUsers() || []).length - 1 > 0 ? 'Shared with' : 'Share device'}</h3>
+
+          <For each={deviceUsers()} fallback={<div class="text-sm text-on-surface-variant">Loading users...</div>}>
+            {(user) => (
+              <Show when={user.permission !== 'owner'}>
+                <div class="flex items-center justify-between gap-2 rounded-md bg-surface-container-high px-3 py-2 text-sm">
+                  <div>{user.email}</div>
+                  <Button
+                    color="error"
+                    onClick={() => unshare(user.email)}
+                    loading={unshareLoadingEmail() === user.email}
+                    leading={<Icon name="delete" />}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              </Show>
+            )}
+          </For>
+
+          <form onSubmit={share} class="flex items-center gap-2" method="post" ref={shareFormRef}>
+            <TextField label="Share with email" id="email-box" name="email" class="w-full" />
+            <Button color="secondary" type="submit" loading={shareLoading()} leading={<Icon name="share" />}>
+              Share
+            </Button>
+          </form>
+
+          <Show when={shareError()}>
+            <div class="flex gap-2 rounded-sm bg-surface-container-high p-2 text-sm text-on-surface">
+              <Icon class="text-error" name="error" size="20" />
+              {shareError()}
             </div>
           </Show>
         </div>

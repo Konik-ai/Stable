@@ -39,7 +39,7 @@ export function getAppleAuthUrl(): string {
 const GITHUB_OAUTH_PARAMS = {
   client_id: 'Ov23liy0AI1YCd15pypf',
   redirect_uri: `${API_URL}/v2/auth/h/redirect/`,
-  scope: 'read:user',
+  scope: 'read:user user:email',
 }
 export function getGitHubAuthUrl(): string {
   const params = {
