@@ -47,7 +47,7 @@ const DashboardDrawer: VoidComponent<{ devices: Device[] | undefined }> = (props
       </Button>
       <div class="m-4 mt-0 flex flex-col gap-2">
         <Button href="https://useradmin.konik.ai/login" onClick={onClose}>
-          Useradmin
+          Stable Useradmin
         </Button>
         <Button color="text" leading={<Icon name="logout" />} href="/logout" onClick={onClose}>
           Log out
@@ -91,7 +91,7 @@ const FirstPairActivity: Component = () => {
           </Show>
         }
       >
-        connect
+        Stable
       </TopAppBar>
       <section class="flex flex-col gap-4 py-2 items-center mx-auto max-w-md px-4 mt-4 sm:mt-8 md:mt-16">
         <h2 class="text-xl">Pair your device</h2>
@@ -99,7 +99,7 @@ const FirstPairActivity: Component = () => {
         <p class="text-md mt-4">If you cannot see a QR code, check the following:</p>
         <ul class="text-md list-disc list-inside">
           <li>Your device is connected to the internet</li>
-          <li>You have installed the latest version of hoofpilot</li>
+          <li>Your device is on the latest software verison</li>
         </ul>
         <p class="text-md">
           If you still cannot see a QR code, your device may already be paired to another account. Make sure you have signed in to connect
