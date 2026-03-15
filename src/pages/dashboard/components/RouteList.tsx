@@ -1,4 +1,4 @@
-import { createEffect, createResource, createSignal, For, Index, onCleanup, onMount, Show, Suspense, type VoidComponent } from 'solid-js'
+import { createResource, For, Index, Show, Suspense, type VoidComponent } from 'solid-js'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc.js'
 import timezone from 'dayjs/plugin/timezone.js'
@@ -80,139 +80,58 @@ const RouteCard: VoidComponent<RouteCardProps> = (props) => {
   )
 }
 
-const Sentinel = (props: { onTrigger: () => void }) => {
-  let sentinel!: HTMLDivElement
-  const observer = new IntersectionObserver(
-    (entries) => {
-      if (!entries[0].isIntersecting) return
-      props.onTrigger()
-    },
-    { threshold: 0.1 },
-  )
-  onMount(() => observer.observe(sentinel))
-  onCleanup(() => observer.disconnect())
-  return <div ref={sentinel} class="h-10 w-full" />
-}
-
 const PAGE_SIZE = 10
 
 const RouteList: VoidComponent<{ dongleId: string }> = (props) => {
-  const seenRoutes = new Set<string>()
-  // Use offset-based pagination to avoid backend cursor inconsistencies across deployments.
   const endpoint = () => `/v1/devices/${props.dongleId}/routes?limit=${PAGE_SIZE}`
-  const [hasMore, setHasMore] = createSignal(true)
+  const [routes] = createResource(
+    () => props.dongleId,
+    () => fetcher<Route[]>(endpoint()).catch(() => []),
+  )
 
-  const routeKey = (route: Route): string => {
-    // `fullname` is stable and unique for a route.
-    if (route.fullname) return route.fullname
-    return `${route.dongle_id}|${route.start_time ?? ''}|${route.end_time ?? ''}|${route.create_time ?? ''}`
-  }
-
-  const getKey = (page: number): string => (page > 0 ? `${endpoint()}&offset=${page * PAGE_SIZE}` : endpoint())
-
-  const getPage = (page: number): Promise<Route[]> => {
-    if (pages[page] === undefined) {
-      pages[page] = (async () => {
-        const fetched = await fetcher<Route[]>(getKey(page)).catch(() => [])
-        if (fetched.length === 0) {
-          setHasMore(false)
-          return []
-        }
-
-        const unique = fetched.filter((r) => {
-          const k = routeKey(r)
-          if (seenRoutes.has(k)) return false
-          seenRoutes.add(k)
-          return true
-        })
-
-        // If the backend returns only routes we've already seen, we're stuck on a repeated page. Stop.
-        if (unique.length === 0) {
-          setHasMore(false)
-          return []
-        }
-
-        if (fetched.length < PAGE_SIZE) setHasMore(false)
-        return unique
-      })()
-    }
-    return pages[page]
-  }
-
-  const pages: Promise<Route[]>[] = []
-  const [size, setSize] = createSignal(1)
-  const pageNumbers = () => Array.from({ length: size() })
-
-  createEffect(() => {
-    if (props.dongleId) {
-      pages.length = 0
-      setSize(1)
-      setHasMore(true)
-      seenRoutes.clear()
-      prevDayHeader = null
-    }
-  })
-
-  // Group and display headers for each day
-  let prevDayHeader: string | null = null
-  function getDayHeader(route: Route): string | null {
+  function getDayHeader(route: Route): string {
     const date = parseTimestamp(route.start_time!).local()
-    let dayHeader = null
     if (date.isSame(dayjs(), 'day')) {
-      dayHeader = `Today – ${date.format('dddd, MMM D')}`
-    } else if (date.isSame(dayjs().subtract(1, 'day'), 'day')) {
-      dayHeader = `Yesterday – ${date.format('dddd, MMM D')}`
-    } else if (date.year() === dayjs().year()) {
-      dayHeader = date.format('dddd, MMM D')
-    } else {
-      dayHeader = date.format('dddd, MMM D, YYYY')
+      return `Today – ${date.format('dddd, MMM D')}`
     }
-
-    if (dayHeader !== prevDayHeader) {
-      prevDayHeader = dayHeader
-      return dayHeader
+    if (date.isSame(dayjs().subtract(1, 'day'), 'day')) {
+      return `Yesterday – ${date.format('dddd, MMM D')}`
     }
-    return null
+    if (date.year() === dayjs().year()) return date.format('dddd, MMM D')
+    return date.format('dddd, MMM D, YYYY')
   }
 
   return (
     <div class="flex w-full flex-col justify-items-stretch gap-4">
-      <For each={pageNumbers()}>
-        {(_, i) => {
-          const [routes] = createResource(() => i(), getPage)
+      <Suspense
+        fallback={
+          <>
+            <h2 class="skeleton-loader rounded-md min-h-7"></h2>
+            <Index each={new Array(PAGE_SIZE)}>{() => <div class="skeleton-loader flex h-[140px] flex-col rounded-lg" />}</Index>
+          </>
+        }
+      >
+        {(() => {
+          let previousDayHeader: string | null = null
           return (
-            <Suspense
-              fallback={
-                <>
-                  <h2 class="skeleton-loader rounded-md min-h-7"></h2>
-                  <Index each={new Array(PAGE_SIZE)}>{() => <div class="skeleton-loader flex h-[140px] flex-col rounded-lg" />}</Index>
-                </>
-              }
-            >
-              <For each={routes()}>
-                {(route) => {
-                  const firstHeader = prevDayHeader === null
-                  const dayHeader = getDayHeader(route)
-                  return (
-                    <>
-                      <Show when={dayHeader}>
-                        <Show when={!firstHeader}>
-                          <div class="w-full" />
-                        </Show>
-                        <h2 class="px-4 text-lg font-bold text-on-surface-variant">{dayHeader}</h2>
-                      </Show>
-                      <RouteCard route={route} />
-                    </>
-                  )
-                }}
-              </For>
-            </Suspense>
+            <For each={routes()}>
+              {(route) => {
+                const dayHeader = getDayHeader(route)
+                const showHeader = dayHeader !== previousDayHeader
+                previousDayHeader = dayHeader
+                return (
+                  <>
+                    <Show when={showHeader}>
+                      <h2 class="px-4 text-lg font-bold text-on-surface-variant">{dayHeader}</h2>
+                    </Show>
+                    <RouteCard route={route} />
+                  </>
+                )
+              }}
+            </For>
           )
-        }}
-      </For>
-      <Show when={hasMore()}>
-        <Sentinel onTrigger={() => setSize((size) => size + 1)} />
-      </Show>
+        })()}
+      </Suspense>
     </div>
   )
 }
