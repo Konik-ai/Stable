@@ -162,7 +162,7 @@ const DeviceSettingsForm: VoidComponent<{ dongleId: string; device: Resource<Dev
           </For>
 
           <form onSubmit={share} class="flex items-center gap-2" method="post" ref={shareFormRef}>
-            <TextField label="Share with email or username" id="email-box" name="email" class="w-full" />
+            <TextField label="Share with email" id="email-box" name="email" class="w-full" />
             <Button color="secondary" type="submit" loading={shareLoading()} leading={<Icon name="share" />}>
               Share
             </Button>
