@@ -1,6 +1,9 @@
-import type { JSXElement, ParentComponent, ValidComponent } from 'solid-js'
+import { Show, type JSXElement, type ParentComponent, type ValidComponent } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
 import clsx from 'clsx'
+
+import { isUpdateAvailable, updateKonikStable } from '~/pwa'
+import IconButton from './IconButton'
 
 type TopAppBarProps = {
   class?: string
@@ -16,6 +19,9 @@ const TopAppBar: ParentComponent<TopAppBarProps> = (props) => {
       <Dynamic class="grow truncate text-title-lg" component={props.component || 'h1'}>
         {props.children}
       </Dynamic>
+      <Show when={isUpdateAvailable()}>
+        <IconButton name="refresh" title="Update Konik Stable" aria-label="Update Konik Stable" onClick={() => void updateKonikStable()} />
+      </Show>
       {props.trailing}
     </header>
   )

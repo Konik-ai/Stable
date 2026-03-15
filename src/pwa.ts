@@ -1,8 +1,14 @@
+import { createSignal } from 'solid-js'
 import { registerSW } from 'virtual:pwa-register'
 
 const intervalMS = 60 * 60 * 1000
 
-registerSW({
+const [updateAvailable, setUpdateAvailable] = createSignal(false)
+
+const runServiceWorkerUpdate = registerSW({
+  onNeedRefresh() {
+    setUpdateAvailable(true)
+  },
   onRegisteredSW(swUrl: string, r?: ServiceWorkerRegistration) {
     if (!r) return
     setInterval(async () => {
@@ -19,3 +25,10 @@ registerSW({
     }, intervalMS)
   },
 })
+
+export const isUpdateAvailable = updateAvailable
+
+export async function updateKonikStable(): Promise<void> {
+  await runServiceWorkerUpdate(true)
+  setUpdateAvailable(false)
+}
