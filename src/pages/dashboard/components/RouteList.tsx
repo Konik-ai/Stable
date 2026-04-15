@@ -1,4 +1,7 @@
-import { createResource, For, Index, Show, Suspense, type VoidComponent } from 'solid-js'
+import { createEffect, createMemo, For, Index, Show, type VoidComponent } from 'solid-js'
+import { createStore } from 'solid-js/store'
+import { queryOptions, useInfiniteQuery, useQuery } from '@tanstack/solid-query'
+import { createVirtualizer } from '@tanstack/solid-virtual'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc.js'
 import timezone from 'dayjs/plugin/timezone.js'
@@ -6,132 +9,208 @@ dayjs.extend(utc)
 dayjs.extend(timezone)
 
 import { fetcher } from '~/api'
-import { generateRouteStatistics, getTimelineEvents } from '~/api/derived'
+import { getTimelineEventsInWorker } from '~/api/events-worker-client'
 import Card, { CardContent, CardHeader } from '~/components/material/Card'
 import Icon from '~/components/material/Icon'
 import RouteEventStrip from '~/components/RouteEventStrip'
 import RouteStatisticsBar from '~/components/RouteStatisticsBar'
 import { getPlaceName } from '~/map/geocode'
 import type { Route } from '~/api/types'
-import { parseTimestamp } from '~/utils/format'
+import { getRouteEndTime, parseTimestamp } from '~/utils/format'
+
+const PAGE_SIZE = 20
+const ESTIMATED_HEADER_SIZE = 40
+const ESTIMATED_ROUTE_SIZE = 164
+const OVERSCAN = 6
+const PREFETCH_THRESHOLD = 8
+
+type ListItem = { kind: 'header'; key: string; text: string } | { kind: 'route'; key: string; route: Route }
+
+const routeEventsQuery = (route: Route) =>
+  queryOptions({
+    queryKey: ['route-events', route.fullname],
+    queryFn: () => getTimelineEventsInWorker(route),
+    staleTime: Number.POSITIVE_INFINITY,
+    gcTime: 30 * 60 * 1000,
+  })
+
+async function computeRouteLocation(route: Route): Promise<string> {
+  const startPos: [number, number] = [route.start_lng || 0, route.start_lat || 0]
+  const endPos: [number, number] = [route.end_lng || 0, route.end_lat || 0]
+  const [startPlace, endPlace] = await Promise.all([getPlaceName(startPos), getPlaceName(endPos)])
+  if (!startPlace && !endPlace) return 'No GPS for this route'
+  if (!endPlace || startPlace === endPlace) return startPlace ?? ''
+  if (!startPlace) return endPlace ?? ''
+  return `${startPlace} to ${endPlace}`
+}
 
 interface RouteCardProps {
   route: Route
+  location: string | undefined
 }
 
 const RouteCard: VoidComponent<RouteCardProps> = (props) => {
+  const eventsQuery = useQuery(() => routeEventsQuery(props.route))
+
   const startTime = () => parseTimestamp(props.route.start_time!).local()
-  const [events] = createResource(() => props.route, getTimelineEvents, { initialValue: [] })
-  const statistics = () => generateRouteStatistics(props.route, events())
+  const events = () => eventsQuery.data ?? []
+  const hasUserFlag = () => events().some((ev) => ev.type === 'user_flag')
 
-  const endTime = () => {
-    const start = startTime()
-    const rawEnd = props.route.end_time
-
-    // Some very short routes come back with `end_time: 0` which renders as 4:00 PM (epoch) in local time.
-    if (rawEnd !== null && rawEnd !== undefined && rawEnd !== 0) {
-      const parsed = parseTimestamp(rawEnd).local()
-      if (parsed.isValid() && parsed.isAfter(start)) return parsed
-    }
-
-    // Fall back to derived duration when end_time is missing/invalid.
-    if (events.state === 'ready' || events.state === 'refreshing') {
-      const durMs = statistics().routeDurationMs
-      if (Number.isFinite(durMs) && durMs > 0) return start.add(durMs, 'millisecond')
-    }
-
-    return start
-  }
-  const [location] = createResource(async () => {
-    const startPos = [props.route.start_lng || 0, props.route.start_lat || 0]
-    const endPos = [props.route.end_lng || 0, props.route.end_lat || 0]
-    const startPlace = await getPlaceName(startPos)
-    const endPlace = await getPlaceName(endPos)
-    if (!startPlace && !endPlace) return ''
-    if (!endPlace || startPlace === endPlace) return startPlace
-    if (!startPlace) return endPlace
-    return `${startPlace} to ${endPlace}`
-  })
+  const endTime = () => getRouteEndTime(props.route)?.local() ?? startTime()
 
   return (
     <Card class="max-w-none" href={`/${props.route.dongle_id}/${props.route.fullname.slice(17)}`} activeClass="md:before:bg-primary">
       <CardHeader
         headline={`${startTime().format('h:mm A')} to ${endTime().format('h:mm A')}`}
-        subhead={<Suspense fallback={<div class="h-[20px] w-auto skeleton-loader rounded-xs" />}>{location()}</Suspense>}
+        subhead={
+          <Show when={props.location !== undefined} fallback={<div class="h-[20px] w-auto skeleton-loader rounded-xs" />}>
+            {props.location}
+          </Show>
+        }
         trailing={
-          <Suspense>
-            <Show when={(events.state === 'ready' || events.state === 'refreshing') && statistics().userFlags}>
-              <div class="flex items-center justify-center rounded-full p-1 border-amber-300 border-2">
-                <Icon class="text-yellow-300" size="24" name="flag" filled />
-              </div>
-            </Show>
-          </Suspense>
+          <Show when={hasUserFlag()}>
+            <div class="flex items-center justify-center rounded-full p-1 border-amber-300 border-2">
+              <Icon class="text-yellow-300" size="24" name="flag" filled />
+            </div>
+          </Show>
         }
       />
-
       <CardContent>
-        <RouteStatisticsBar
-          route={props.route}
-          statistics={events.state === 'ready' || events.state === 'refreshing' ? statistics() : undefined}
-        />
+        <RouteStatisticsBar route={props.route} />
       </CardContent>
       <RouteEventStrip class="h-2.5 w-full" route={props.route} events={events()} />
     </Card>
   )
 }
 
-const PAGE_SIZE = 10
+function getDayHeader(route: Route): string {
+  const date = parseTimestamp(route.start_time!).local()
+  if (date.isSame(dayjs(), 'day')) return `Today – ${date.format('dddd, MMM D')}`
+  if (date.isSame(dayjs().subtract(1, 'day'), 'day')) return `Yesterday – ${date.format('dddd, MMM D')}`
+  if (date.year() === dayjs().year()) return date.format('dddd, MMM D')
+  return date.format('dddd, MMM D, YYYY')
+}
+
+function findScrollParent(el: HTMLElement | null): HTMLElement | null {
+  let node: HTMLElement | null = el?.parentElement ?? null
+  while (node && node !== document.body) {
+    const { overflowY } = getComputedStyle(node)
+    if (overflowY === 'auto' || overflowY === 'scroll') return node
+    node = node.parentElement
+  }
+  return (document.scrollingElement as HTMLElement | null) ?? document.documentElement
+}
 
 const RouteList: VoidComponent<{ dongleId: string }> = (props) => {
-  const endpoint = () => `/v1/devices/${props.dongleId}/routes?limit=${PAGE_SIZE}`
-  const [routes] = createResource(
-    () => props.dongleId,
-    () => fetcher<Route[]>(endpoint()).catch(() => []),
-  )
+  let sentinelEl: HTMLDivElement | undefined
+  // createStore gives granular reactivity: updating one route's location only
+  // re-reads the card that depends on that key, not every mounted card.
+  const [locations, setLocations] = createStore<Record<string, string>>({})
 
-  function getDayHeader(route: Route): string {
-    const date = parseTimestamp(route.start_time!).local()
-    if (date.isSame(dayjs(), 'day')) {
-      return `Today – ${date.format('dddd, MMM D')}`
+  const routesQuery = useInfiniteQuery(() => ({
+    queryKey: ['device-routes', props.dongleId],
+    queryFn: async ({ pageParam }) => {
+      const routes = await fetcher<Route[]>(`/v1/devices/${props.dongleId}/routes?limit=${PAGE_SIZE}&offset=${pageParam}`)
+      // Fire one batch geocode for this page. All start/end calls enqueue
+      // synchronously so the batcher coalesces them into a single POST.
+      // Non-blocking: route cards render immediately and fill in the subhead
+      // as each lookup resolves.
+      for (const route of routes) {
+        computeRouteLocation(route)
+          .then((loc) => setLocations(route.fullname, loc))
+          .catch((err) => console.error('[RouteList] geocode failed', route.fullname, err))
+      }
+      return routes
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage: Route[], _allPages: Route[][], lastPageParam: number) =>
+      lastPage.length < PAGE_SIZE ? undefined : lastPageParam + PAGE_SIZE,
+    staleTime: 60_000,
+  }))
+
+  const items = createMemo<ListItem[]>(() => {
+    const pages = routesQuery.data?.pages
+    if (!pages) return []
+    const result: ListItem[] = []
+    let prev: string | null = null
+    for (const page of pages) {
+      for (const route of page) {
+        const header = getDayHeader(route)
+        if (header !== prev) {
+          result.push({ kind: 'header', key: `h-${header}`, text: header })
+          prev = header
+        }
+        result.push({ kind: 'route', key: route.fullname, route })
+      }
     }
-    if (date.isSame(dayjs().subtract(1, 'day'), 'day')) {
-      return `Yesterday – ${date.format('dddd, MMM D')}`
+    return result
+  })
+
+  const virtualizer = createVirtualizer({
+    get count() {
+      return items().length
+    },
+    // Must re-query on every call: the sentinel ref isn't assigned until after
+    // the component mounts, so the first call (during virtualizer setup) sees
+    // sentinelEl=undefined and has to fall back. A cache would lock that wrong
+    // fallback in, breaking scroll/pagination.
+    getScrollElement: () => findScrollParent(sentinelEl ?? null),
+    estimateSize: (index) => (items()[index]?.kind === 'header' ? ESTIMATED_HEADER_SIZE : ESTIMATED_ROUTE_SIZE),
+    overscan: OVERSCAN,
+    getItemKey: (index) => items()[index]?.key ?? index,
+  })
+
+  createEffect(() => {
+    const all = items()
+    if (all.length === 0) return
+    const virtualItems = virtualizer.getVirtualItems()
+    const last = virtualItems[virtualItems.length - 1]
+    if (!last) return
+    if (last.index >= all.length - PREFETCH_THRESHOLD && routesQuery.hasNextPage && !routesQuery.isFetchingNextPage) {
+      void routesQuery.fetchNextPage()
     }
-    if (date.year() === dayjs().year()) return date.format('dddd, MMM D')
-    return date.format('dddd, MMM D, YYYY')
-  }
+  })
 
   return (
-    <div class="flex w-full flex-col justify-items-stretch gap-4">
-      <Suspense
+    <div ref={sentinelEl} class="w-full">
+      <Show
+        when={!routesQuery.isPending}
         fallback={
-          <>
-            <h2 class="skeleton-loader rounded-md min-h-7"></h2>
-            <Index each={new Array(PAGE_SIZE)}>{() => <div class="skeleton-loader flex h-[140px] flex-col rounded-lg" />}</Index>
-          </>
+          <div class="flex flex-col gap-4">
+            <h2 class="skeleton-loader rounded-md min-h-7" />
+            <Index each={new Array(PAGE_SIZE / 2)}>{() => <div class="skeleton-loader flex h-[140px] flex-col rounded-lg" />}</Index>
+          </div>
         }
       >
-        {(() => {
-          let previousDayHeader: string | null = null
-          return (
-            <For each={routes()}>
-              {(route) => {
-                const dayHeader = getDayHeader(route)
-                const showHeader = dayHeader !== previousDayHeader
-                previousDayHeader = dayHeader
-                return (
-                  <>
-                    <Show when={showHeader}>
-                      <h2 class="px-4 text-lg font-bold text-on-surface-variant">{dayHeader}</h2>
-                    </Show>
-                    <RouteCard route={route} />
-                  </>
-                )
-              }}
-            </For>
-          )
-        })()}
-      </Suspense>
+        <div class="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
+          <For each={virtualizer.getVirtualItems()}>
+            {(virtualItem) => {
+              const item = () => items()[virtualItem.index]
+              return (
+                <div
+                  class="absolute left-0 top-0 w-full"
+                  style={{
+                    height: `${virtualItem.size}px`,
+                    transform: `translateY(${virtualItem.start}px)`,
+                  }}
+                >
+                  <Show when={item()} keyed>
+                    {(current) =>
+                      current.kind === 'header' ? (
+                        <h2 class="px-4 pt-2 pb-1 text-lg font-bold text-on-surface-variant">{current.text}</h2>
+                      ) : (
+                        <div class="pb-4">
+                          <RouteCard route={current.route} location={locations[current.route.fullname]} />
+                        </div>
+                      )
+                    }
+                  </Show>
+                </div>
+              )
+            }}
+          </For>
+        </div>
+      </Show>
     </div>
   )
 }

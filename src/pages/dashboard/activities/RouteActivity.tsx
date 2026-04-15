@@ -15,7 +15,7 @@ import RouteStatisticsBar from '~/components/RouteStatisticsBar'
 import RouteVideoPlayer from '~/components/RouteVideoPlayer'
 import RouteUploadButtons from '~/components/RouteUploadButtons'
 import Timeline from '~/components/Timeline'
-import { generateRouteStatistics, getTimelineEvents } from '~/api/derived'
+import { getTimelineEvents } from '~/api/derived'
 import { A } from '@solidjs/router'
 
 type RouteActivityProps = {
@@ -35,12 +35,7 @@ const RouteActivity: VoidComponent<RouteActivityProps> = (props) => {
 
   const selection = () => ({ startTime: props.startTime, endTime: props.endTime })
 
-  // FIXME: generateTimelineStatistics is given different versions of TimelineEvents multiple times, leading to stuttering engaged % on switch
   const [events] = createResource(route, getTimelineEvents, { initialValue: [] })
-  const [statistics] = createResource(
-    () => [route(), events()] as const,
-    ([r, e]) => generateRouteStatistics(r, e),
-  )
 
   const onTimelineChange = (newTime: number) => {
     const video = videoRef()
@@ -85,7 +80,7 @@ const RouteActivity: VoidComponent<RouteActivityProps> = (props) => {
         <div class="flex flex-col gap-2">
           <span class="text-sm">Route Info</span>
           <div class="flex flex-col rounded-md overflow-hidden bg-surface-container">
-            <RouteStatisticsBar class="p-5" route={route()} statistics={statistics()} />
+            <RouteStatisticsBar class="p-5" route={route()} />
 
             <RouteActions routeName={routeName()} route={route()} />
           </div>

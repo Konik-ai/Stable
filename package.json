@@ -82,6 +82,7 @@
     "@solid-primitives/state-machine": "^0.1.0",
     "@solidjs/router": "^0.15.3",
     "@tanstack/solid-query": "^5.72.2",
+    "@tanstack/solid-virtual": "^3.13.23",
     "build": "^0.1.4",
     "clsx": "^2.1.1",
     "dayjs": "^1.11.13",

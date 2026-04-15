@@ -208,6 +208,3 @@ export const generateRouteStatistics = (route: Route | undefined, timeline: Time
     userFlags,
   }
 }
-
-export const getRouteStatistics = async (route: Route): Promise<RouteStatistics> =>
-  getTimelineEvents(route).then((timeline) => generateRouteStatistics(route, timeline))

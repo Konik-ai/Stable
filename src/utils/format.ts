@@ -60,14 +60,42 @@ export const parseTimestamp = (input: string | number): dayjs.Dayjs => {
   return dayjs.utc(input)
 }
 
+const getRouteStartMillis = (route: Route): number | undefined => {
+  if (route.start_time_utc_millis > 0) return route.start_time_utc_millis
+  const firstSegment = route.segment_start_times?.[0]
+  if (firstSegment && firstSegment > 0) return firstSegment
+  if (route.start_time) {
+    const parsed = parseTimestamp(route.start_time)
+    if (parsed.isValid()) return parsed.valueOf()
+  }
+  return undefined
+}
+
+const getRouteEndMillis = (route: Route): number | undefined => {
+  if (route.end_time_utc_millis > 0) return route.end_time_utc_millis
+  const last = route.segment_end_times?.at(-1)
+  if (last && last > 0) return last
+  if (route.end_time) {
+    const parsed = parseTimestamp(route.end_time)
+    if (parsed.isValid()) return parsed.valueOf()
+  }
+  return undefined
+}
+
 export const getRouteDuration = (route: Route | undefined): Duration | undefined => {
-  if (!route || !route.start_time || !route.end_time) return undefined
-  const startTime = parseTimestamp(route.start_time)
-  const endTime = parseTimestamp(route.end_time)
-  if (!startTime.isValid() || !endTime.isValid()) return undefined
-  const diff = endTime.diff(startTime)
+  if (!route) return undefined
+  const start = getRouteStartMillis(route)
+  const end = getRouteEndMillis(route)
+  if (start === undefined || end === undefined) return undefined
+  const diff = end - start
   if (diff <= 0) return undefined
   return dayjs.duration(diff)
+}
+
+export const getRouteEndTime = (route: Route | undefined): dayjs.Dayjs | undefined => {
+  if (!route) return undefined
+  const end = getRouteEndMillis(route)
+  return end === undefined ? undefined : dayjs.utc(end)
 }
 
 export const formatRouteDuration = (route: Route | undefined): string | undefined => {

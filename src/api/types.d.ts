@@ -62,6 +62,7 @@ export interface Route {
   end_lat: number // default to 0
   end_lng: number // default to 0
   end_time: string | number | null
+  end_time_utc_millis: number // 0 until the route is finalized
   fullname: string
   git_branch: string | null
   git_commit: string | null
@@ -72,9 +73,12 @@ export interface Route {
   maxqlog: number
   platform: string | null
   procqlog: number
+  segment_end_times: number[]
+  segment_start_times: number[]
   start_lat: number // default to 0
   start_lng: number // default to 0
   start_time: string | number | null
+  start_time_utc_millis: number // 0 until the route is finalized
   url: string
   user_id: string | null
   version: string | null
