@@ -1,4 +1,4 @@
-import { createResource, createSignal, Match, Show, Suspense, Switch, type VoidComponent } from 'solid-js'
+import { createResource, createSignal, Match, onCleanup, onMount, Show, Suspense, Switch, type VoidComponent } from 'solid-js'
 import clsx from 'clsx'
 
 import { makeAthenaCall } from '~/api/athena'
@@ -55,6 +55,18 @@ type DeviceActivityProps = {
   dongleId: string
 }
 
+const SHOW_BACK_TO_TOP_AT = 400
+
+function findScrollParent(el: HTMLElement | null): HTMLElement | null {
+  let node: HTMLElement | null = el?.parentElement ?? null
+  while (node && node !== document.body) {
+    const { overflowY } = getComputedStyle(node)
+    if (overflowY === 'auto' || overflowY === 'scroll') return node
+    node = node.parentElement
+  }
+  return null
+}
+
 const DeviceActivity: VoidComponent<DeviceActivityProps> = (props) => {
   // TODO: device should be passed in from DeviceList
   const [device] = createResource(() => props.dongleId, getDevice)
@@ -63,13 +75,28 @@ const DeviceActivity: VoidComponent<DeviceActivityProps> = (props) => {
   // TODO: remove this. if we're listing the routes for a device you should always be a user, this is for viewing public routes which are being removed
   const isDeviceUser = () => (device.loading ? true : device.latest?.is_owner || device.latest?.alias !== SHARED_DEVICE)
   const [queueVisible, setQueueVisible] = createSignal(false)
+  const [showBackToTop, setShowBackToTop] = createSignal(false)
+
+  let stickyEl: HTMLDivElement | undefined
+  onMount(() => {
+    const scrollEl = findScrollParent(stickyEl ?? null)
+    if (!scrollEl) return
+    const onScroll = () => setShowBackToTop(scrollEl.scrollTop > SHOW_BACK_TO_TOP_AT)
+    scrollEl.addEventListener('scroll', onScroll, { passive: true })
+    onScroll()
+    onCleanup(() => scrollEl.removeEventListener('scroll', onScroll))
+  })
+
+  const scrollToTop = () => {
+    findScrollParent(stickyEl ?? null)?.scrollTo({ top: 0, behavior: 'smooth' })
+  }
 
   const { modal } = useDrawerContext()
 
   return (
     <>
       <TopAppBar
-        class="font-bold"
+        class="font-bold sticky top-0 z-10 bg-background"
         leading={
           <Show when={!modal()} fallback={<DrawerToggleButton />}>
             <img alt="" src="/images/comma-white.png" class="h-8" />
@@ -116,6 +143,20 @@ const DeviceActivity: VoidComponent<DeviceActivityProps> = (props) => {
           </Show>
         </div>
         <RouteList dongleId={props.dongleId} />
+      </div>
+      <div ref={stickyEl} class="sticky bottom-0 z-10 flex justify-end pointer-events-none p-4">
+        <button
+          type="button"
+          class={clsx(
+            'pointer-events-auto flex size-12 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg transition-opacity duration-200',
+            showBackToTop() ? 'opacity-100' : 'opacity-0',
+          )}
+          onClick={scrollToTop}
+          aria-label="Back to top"
+          tabIndex={showBackToTop() ? 0 : -1}
+        >
+          <Icon name="arrow_upward" />
+        </button>
       </div>
     </>
   )

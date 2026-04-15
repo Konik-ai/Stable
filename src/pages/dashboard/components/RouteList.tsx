@@ -1,6 +1,6 @@
-import { createEffect, createMemo, For, Index, Show, type VoidComponent } from 'solid-js'
+import { createEffect, createMemo, For, Index, onCleanup, onMount, Show, type VoidComponent } from 'solid-js'
 import { createStore } from 'solid-js/store'
-import { queryOptions, useInfiniteQuery, useQuery } from '@tanstack/solid-query'
+import { useInfiniteQuery } from '@tanstack/solid-query'
 import { createVirtualizer } from '@tanstack/solid-virtual'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc.js'
@@ -9,6 +9,7 @@ dayjs.extend(utc)
 dayjs.extend(timezone)
 
 import { fetcher } from '~/api'
+import type { TimelineEvent } from '~/api/derived'
 import { getTimelineEventsInWorker } from '~/api/events-worker-client'
 import Card, { CardContent, CardHeader } from '~/components/material/Card'
 import Icon from '~/components/material/Icon'
@@ -26,14 +27,6 @@ const PREFETCH_THRESHOLD = 8
 
 type ListItem = { kind: 'header'; key: string; text: string } | { kind: 'route'; key: string; route: Route }
 
-const routeEventsQuery = (route: Route) =>
-  queryOptions({
-    queryKey: ['route-events', route.fullname],
-    queryFn: () => getTimelineEventsInWorker(route),
-    staleTime: Number.POSITIVE_INFINITY,
-    gcTime: 30 * 60 * 1000,
-  })
-
 async function computeRouteLocation(route: Route): Promise<string> {
   const startPos: [number, number] = [route.start_lng || 0, route.start_lat || 0]
   const endPos: [number, number] = [route.end_lng || 0, route.end_lat || 0]
@@ -47,13 +40,32 @@ async function computeRouteLocation(route: Route): Promise<string> {
 interface RouteCardProps {
   route: Route
   location: string | undefined
+  events: TimelineEvent[] | undefined
+  requestEvents: (route: Route) => () => void
 }
 
+// Cards mounted for less than this many ms during a scroll don't fire their
+// events query. Prevents rapid scroll from queueing hundreds of events.json
+// fetches that would otherwise stall /routes pagination requests.
+const EVENTS_FETCH_DELAY_MS = 800
+
 const RouteCard: VoidComponent<RouteCardProps> = (props) => {
-  const eventsQuery = useQuery(() => routeEventsQuery(props.route))
+  let cancel: (() => void) | undefined
+  let timer: ReturnType<typeof setTimeout> | undefined
+
+  onMount(() => {
+    timer = setTimeout(() => {
+      cancel = props.requestEvents(props.route)
+    }, EVENTS_FETCH_DELAY_MS)
+  })
+
+  onCleanup(() => {
+    if (timer !== undefined) clearTimeout(timer)
+    cancel?.()
+  })
 
   const startTime = () => parseTimestamp(props.route.start_time!).local()
-  const events = () => eventsQuery.data ?? []
+  const events = () => props.events ?? []
   const hasUserFlag = () => events().some((ev) => ev.type === 'user_flag')
 
   const endTime = () => getRouteEndTime(props.route)?.local() ?? startTime()
@@ -106,27 +118,72 @@ const RouteList: VoidComponent<{ dongleId: string }> = (props) => {
   // createStore gives granular reactivity: updating one route's location only
   // re-reads the card that depends on that key, not every mounted card.
   const [locations, setLocations] = createStore<Record<string, string>>({})
+  const [eventsMap, setEventsMap] = createStore<Record<string, TimelineEvent[]>>({})
+
+  // Tracks in-flight requests by fullname so two mounts of the same route
+  // don't duplicate work. Each entry is the cancel fn from events-worker-client.
+  const inflightEvents = new Map<string, () => void>()
+
+  // Called by RouteCard.onMount after the 800ms debounce. Returns a cancel
+  // function the card calls on unmount. If the card unmounts before the
+  // worker dispatches the request, the queue drops it; if it unmounts after
+  // dispatch, the worker's response is discarded.
+  const requestEvents = (route: Route): (() => void) => {
+    const fullname = route.fullname
+    if (fullname in eventsMap) return () => {}
+    if (inflightEvents.has(fullname)) {
+      // A stale inflight request for this route exists (card unmounted then
+      // remounted fast). Leave it alone — it'll populate eventsMap when it
+      // resolves, and the new card will pick it up reactively.
+      return () => {}
+    }
+    const request = getTimelineEventsInWorker(route)
+    inflightEvents.set(fullname, request.cancel)
+    request.promise
+      .then((timeline) => {
+        inflightEvents.delete(fullname)
+        setEventsMap(fullname, timeline)
+      })
+      .catch(() => {
+        inflightEvents.delete(fullname)
+      })
+    return () => {
+      if (inflightEvents.get(fullname) === request.cancel) {
+        inflightEvents.delete(fullname)
+      }
+      request.cancel()
+    }
+  }
 
   const routesQuery = useInfiniteQuery(() => ({
     queryKey: ['device-routes', props.dongleId],
-    queryFn: async ({ pageParam }) => {
-      const routes = await fetcher<Route[]>(`/v1/devices/${props.dongleId}/routes?limit=${PAGE_SIZE}&offset=${pageParam}`)
-      // Fire one batch geocode for this page. All start/end calls enqueue
-      // synchronously so the batcher coalesces them into a single POST.
-      // Non-blocking: route cards render immediately and fill in the subhead
-      // as each lookup resolves.
-      for (const route of routes) {
-        computeRouteLocation(route)
-          .then((loc) => setLocations(route.fullname, loc))
-          .catch((err) => console.error('[RouteList] geocode failed', route.fullname, err))
-      }
-      return routes
-    },
+    queryFn: ({ pageParam }) => fetcher<Route[]>(`/v1/devices/${props.dongleId}/routes?limit=${PAGE_SIZE}&offset=${pageParam}`),
     initialPageParam: 0,
     getNextPageParam: (lastPage: Route[], _allPages: Route[][], lastPageParam: number) =>
       lastPage.length < PAGE_SIZE ? undefined : lastPageParam + PAGE_SIZE,
     staleTime: 60_000,
   }))
+
+  // Kick off geocoding whenever new routes appear in routesQuery.data — runs
+  // on both fresh fetches and cache-served remounts (queryFn is skipped for
+  // cache hits, so this effect is the only reliable trigger). `seen` lives on
+  // the component instance, so switching devices and coming back gives a fresh
+  // set and re-populates the (fresh) locations store. reverseGeocode's own
+  // position cache ensures we don't re-hit the network for repeat coords.
+  const seen = new Set<string>()
+  createEffect(() => {
+    const pages = routesQuery.data?.pages
+    if (!pages) return
+    for (const page of pages) {
+      for (const route of page) {
+        if (seen.has(route.fullname)) continue
+        seen.add(route.fullname)
+        computeRouteLocation(route)
+          .then((loc) => setLocations(route.fullname, loc))
+          .catch((err) => console.error('[RouteList] geocode failed', route.fullname, err))
+      }
+    }
+  })
 
   const items = createMemo<ListItem[]>(() => {
     const pages = routesQuery.data?.pages
@@ -200,7 +257,12 @@ const RouteList: VoidComponent<{ dongleId: string }> = (props) => {
                         <h2 class="px-4 pt-2 pb-1 text-lg font-bold text-on-surface-variant">{current.text}</h2>
                       ) : (
                         <div class="pb-4">
-                          <RouteCard route={current.route} location={locations[current.route.fullname]} />
+                          <RouteCard
+                            route={current.route}
+                            location={locations[current.route.fullname]}
+                            events={eventsMap[current.route.fullname]}
+                            requestEvents={requestEvents}
+                          />
                         </div>
                       )
                     }
