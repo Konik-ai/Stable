@@ -23,7 +23,7 @@ const PAGE_SIZE = 20
 const ESTIMATED_HEADER_SIZE = 40
 const ESTIMATED_ROUTE_SIZE = 164
 const OVERSCAN = 6
-const PREFETCH_THRESHOLD = 8
+const PREFETCH_THRESHOLD = 20
 
 type ListItem = { kind: 'header'; key: string; text: string } | { kind: 'route'; key: string; route: Route }
 
