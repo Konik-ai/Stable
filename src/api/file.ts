@@ -12,8 +12,24 @@ import type {
   UploadQueueItem,
 } from '~/api/types'
 import { fetcher } from '.'
+import { accessToken } from '~/api/auth/client'
+import { API_URL } from '~/api/config'
 import { makeAthenaCall } from '~/api/athena'
 import { parseRouteName } from '~/api/route'
+
+export type DownloadVideoType = 'fcamera' | 'dcamera' | 'ecamera'
+
+export const downloadStitchedVideo = (routeName: Route['fullname'], type: DownloadVideoType): void => {
+  const { dongleId, routeId } = parseRouteName(routeName)
+  const url = `${API_URL}/connectdata/download/${dongleId}/${routeId}/${type}?sig=${accessToken() ?? ''}`
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${dongleId}_${routeId}_${type}.mp4`
+  a.rel = 'noopener'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
 
 export const FileTypes = {
   logs: ['rlog.bz2', 'rlog.zst'],
