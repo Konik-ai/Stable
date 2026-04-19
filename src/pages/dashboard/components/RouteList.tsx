@@ -11,9 +11,11 @@ dayjs.extend(timezone)
 import { fetcher } from '~/api'
 import type { TimelineEvent } from '~/api/derived'
 import { getTimelineEventsInWorker } from '~/api/events-worker-client'
+import { getRouteSpritesInWorker, type RouteSprites } from '~/api/sprites-worker-client'
 import Card, { CardContent, CardHeader } from '~/components/material/Card'
 import Icon from '~/components/material/Icon'
 import RouteEventStrip from '~/components/RouteEventStrip'
+import RouteSpriteStrip from '~/components/RouteSpriteStrip'
 import RouteStatisticsBar from '~/components/RouteStatisticsBar'
 import { getPlaceName } from '~/map/geocode'
 import type { Route } from '~/api/types'
@@ -21,7 +23,7 @@ import { getRouteEndTime, parseTimestamp } from '~/utils/format'
 
 const PAGE_SIZE = 20
 const ESTIMATED_HEADER_SIZE = 40
-const ESTIMATED_ROUTE_SIZE = 164
+const ESTIMATED_ROUTE_SIZE = 212
 const OVERSCAN = 6
 const PREFETCH_THRESHOLD = 20
 
@@ -41,7 +43,9 @@ interface RouteCardProps {
   route: Route
   location: string | undefined
   events: TimelineEvent[] | undefined
+  sprites: RouteSprites | undefined
   requestEvents: (route: Route) => () => void
+  requestSprites: (route: Route) => () => void
 }
 
 // Cards mounted for less than this many ms during a scroll don't fire their
@@ -50,18 +54,21 @@ interface RouteCardProps {
 const EVENTS_FETCH_DELAY_MS = 800
 
 const RouteCard: VoidComponent<RouteCardProps> = (props) => {
-  let cancel: (() => void) | undefined
+  let cancelEvents: (() => void) | undefined
+  let cancelSprites: (() => void) | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
 
   onMount(() => {
     timer = setTimeout(() => {
-      cancel = props.requestEvents(props.route)
+      cancelEvents = props.requestEvents(props.route)
+      cancelSprites = props.requestSprites(props.route)
     }, EVENTS_FETCH_DELAY_MS)
   })
 
   onCleanup(() => {
     if (timer !== undefined) clearTimeout(timer)
-    cancel?.()
+    cancelEvents?.()
+    cancelSprites?.()
   })
 
   const startTime = () => parseTimestamp(props.route.start_time!).local()
@@ -90,6 +97,7 @@ const RouteCard: VoidComponent<RouteCardProps> = (props) => {
       <CardContent>
         <RouteStatisticsBar route={props.route} />
       </CardContent>
+      <RouteSpriteStrip class="h-12 w-full" sprites={props.sprites} />
       <RouteEventStrip class="h-2.5 w-full" route={props.route} events={events()} />
     </Card>
   )
@@ -119,10 +127,12 @@ const RouteList: VoidComponent<{ dongleId: string }> = (props) => {
   // re-reads the card that depends on that key, not every mounted card.
   const [locations, setLocations] = createStore<Record<string, string>>({})
   const [eventsMap, setEventsMap] = createStore<Record<string, TimelineEvent[]>>({})
+  const [spritesMap, setSpritesMap] = createStore<Record<string, RouteSprites>>({})
 
   // Tracks in-flight requests by fullname so two mounts of the same route
   // don't duplicate work. Each entry is the cancel fn from events-worker-client.
   const inflightEvents = new Map<string, () => void>()
+  const inflightSprites = new Map<string, () => void>()
 
   // Called by RouteCard.onMount after the 800ms debounce. Returns a cancel
   // function the card calls on unmount. If the card unmounts before the
@@ -150,6 +160,28 @@ const RouteList: VoidComponent<{ dongleId: string }> = (props) => {
     return () => {
       if (inflightEvents.get(fullname) === request.cancel) {
         inflightEvents.delete(fullname)
+      }
+      request.cancel()
+    }
+  }
+
+  const requestSprites = (route: Route): (() => void) => {
+    const fullname = route.fullname
+    if (fullname in spritesMap) return () => {}
+    if (inflightSprites.has(fullname)) return () => {}
+    const request = getRouteSpritesInWorker(route)
+    inflightSprites.set(fullname, request.cancel)
+    request.promise
+      .then((sprites) => {
+        inflightSprites.delete(fullname)
+        setSpritesMap(fullname, sprites)
+      })
+      .catch(() => {
+        inflightSprites.delete(fullname)
+      })
+    return () => {
+      if (inflightSprites.get(fullname) === request.cancel) {
+        inflightSprites.delete(fullname)
       }
       request.cancel()
     }
@@ -261,7 +293,9 @@ const RouteList: VoidComponent<{ dongleId: string }> = (props) => {
                             route={current.route}
                             location={locations[current.route.fullname]}
                             events={eventsMap[current.route.fullname]}
+                            sprites={spritesMap[current.route.fullname]}
                             requestEvents={requestEvents}
+                            requestSprites={requestSprites}
                           />
                         </div>
                       )
