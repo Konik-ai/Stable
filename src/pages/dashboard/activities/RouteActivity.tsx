@@ -1,9 +1,10 @@
-import { Show, createEffect, createResource, createSignal, Suspense, type VoidComponent } from 'solid-js'
+import { Show, createEffect, createResource, createSignal, onCleanup, Suspense, type VoidComponent } from 'solid-js'
 
 import { setRouteViewed } from '~/api/athena'
 import { getDevice } from '~/api/devices'
 import { getProfile } from '~/api/profile'
 import { getRoute } from '~/api/route'
+import { getRouteSpritesInWorker, type RouteSprites } from '~/api/sprites-worker-client'
 import { parseTimestamp } from '~/utils/format'
 import { resolved } from '~/utils/reactivity'
 
@@ -37,6 +38,16 @@ const RouteActivity: VoidComponent<RouteActivityProps> = (props) => {
 
   const [events] = createResource(route, getTimelineEvents, { initialValue: [] })
 
+  const [sprites, setSprites] = createSignal<RouteSprites | undefined>(undefined)
+  createEffect(() => {
+    const r = route()
+    if (!r) return
+    setSprites(undefined)
+    const request = getRouteSpritesInWorker(r)
+    request.promise.then(setSprites).catch(() => {})
+    onCleanup(() => request.cancel())
+  })
+
   const onTimelineChange = (newTime: number) => {
     const video = videoRef()
     if (video) video.currentTime = newTime
@@ -64,7 +75,14 @@ const RouteActivity: VoidComponent<RouteActivityProps> = (props) => {
       <div class="flex flex-col gap-6 px-4 pb-4">
         <div class="flex flex-col">
           <RouteVideoPlayer ref={setVideoRef} routeName={routeName()} selection={selection()} onProgress={setSeekTime} />
-          <Timeline class="mb-1" route={route()} seekTime={seekTime()} updateTime={onTimelineChange} events={events()} />
+          <Timeline
+            class="mb-1"
+            route={route()}
+            seekTime={seekTime()}
+            updateTime={onTimelineChange}
+            events={events()}
+            sprites={sprites()}
+          />
 
           <Show when={selection().startTime || selection().endTime}>
             <A

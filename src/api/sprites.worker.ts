@@ -1,9 +1,14 @@
 /// <reference lib="webworker" />
+import { cachedFetch } from './cache'
 import type { Route } from './types'
 
 type WorkerRequest = { id: number; route: Route }
 type SpriteResult = {
-  segmentBlobs: Blob[]
+  // Parallel to route segments (index i == segment i). `null` means the segment
+  // sprite was missing, failed to fetch, or failed to decode — keep position so
+  // downstream code can map segment index → sprite deterministically.
+  segmentBlobs: (Blob | null)[]
+  segmentTileCounts: number[]
   lastTileBlob: Blob | null
 }
 type WorkerResponse = { id: number; result?: SpriteResult; error?: string }
@@ -28,16 +33,45 @@ ctx.addEventListener('message', (e: MessageEvent<WorkerRequest>) => {
 
 async function fetchSprites(route: Route): Promise<SpriteResult> {
   const urls = Array.from({ length: route.maxqlog + 1 }, (_, i) => `${route.url}/${i}/sprite.jpg`)
-  const results = await Promise.all(urls.map(fetchBlob))
-  const segmentBlobs = results.filter((b): b is Blob => b !== null)
-  if (segmentBlobs.length === 0) return { segmentBlobs: [], lastTileBlob: null }
-  const lastTileBlob = await extractLastTile(segmentBlobs[segmentBlobs.length - 1])
-  return { segmentBlobs, lastTileBlob }
+  const blobs = await Promise.all(urls.map(fetchBlob))
+
+  const segmentBlobs: (Blob | null)[] = []
+  const segmentTileCounts: number[] = []
+  let lastBitmap: ImageBitmap | null = null
+
+  for (const blob of blobs) {
+    if (!blob) {
+      segmentBlobs.push(null)
+      segmentTileCounts.push(0)
+      continue
+    }
+    try {
+      const bitmap = await createImageBitmap(blob)
+      const count = Math.round(bitmap.width / TILE_WIDTH)
+      if (count > 0) {
+        segmentBlobs.push(blob)
+        segmentTileCounts.push(count)
+        lastBitmap?.close()
+        lastBitmap = bitmap
+      } else {
+        segmentBlobs.push(null)
+        segmentTileCounts.push(0)
+        bitmap.close()
+      }
+    } catch {
+      segmentBlobs.push(null)
+      segmentTileCounts.push(0)
+    }
+  }
+
+  const lastTileBlob = lastBitmap ? await extractLastTile(lastBitmap) : null
+  lastBitmap?.close()
+  return { segmentBlobs, segmentTileCounts, lastTileBlob }
 }
 
 async function fetchBlob(url: string): Promise<Blob | null> {
   try {
-    const res = await fetch(url)
+    const res = await cachedFetch(url)
     if (!res.ok) return null
     return await res.blob()
   } catch {
@@ -45,9 +79,8 @@ async function fetchBlob(url: string): Promise<Blob | null> {
   }
 }
 
-async function extractLastTile(blob: Blob): Promise<Blob | null> {
+async function extractLastTile(bitmap: ImageBitmap): Promise<Blob | null> {
   try {
-    const bitmap = await createImageBitmap(blob)
     const sourceX = Math.max(0, bitmap.width - TILE_WIDTH)
     const sourceW = Math.min(TILE_WIDTH, bitmap.width)
     const canvas = new OffscreenCanvas(TILE_WIDTH, TILE_HEIGHT)

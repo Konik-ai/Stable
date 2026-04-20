@@ -2,14 +2,20 @@ import SpritesWorker from './sprites.worker?worker'
 import type { Route } from './types'
 
 type SpriteResult = {
-  segmentBlobs: Blob[]
+  segmentBlobs: (Blob | null)[]
+  segmentTileCounts: number[]
   lastTileBlob: Blob | null
 }
 
 export type RouteSprites = {
-  segmentUrls: string[]
+  // Parallel to route segments — `null` entries are missing/failed segments.
+  segmentUrls: (string | null)[]
+  segmentTileCounts: number[]
   lastTileUrl: string | null
 }
+
+export const SPRITE_TILE_WIDTH = 128
+export const SPRITE_TILE_HEIGHT = 80
 
 type WorkerResponse = { id: number; result?: SpriteResult; error?: string }
 
@@ -75,7 +81,8 @@ function dispatch(entry: QueueEntry) {
 
 function blobsToUrls(result: SpriteResult): RouteSprites {
   return {
-    segmentUrls: result.segmentBlobs.map((b) => URL.createObjectURL(b)),
+    segmentUrls: result.segmentBlobs.map((b) => (b ? URL.createObjectURL(b) : null)),
+    segmentTileCounts: result.segmentTileCounts,
     lastTileUrl: result.lastTileBlob ? URL.createObjectURL(result.lastTileBlob) : null,
   }
 }
@@ -94,7 +101,7 @@ function getWorker(): Worker {
       } else if (e.data.result) {
         entry.resolve(blobsToUrls(e.data.result))
       } else {
-        entry.resolve({ segmentUrls: [], lastTileUrl: null })
+        entry.resolve({ segmentUrls: [], segmentTileCounts: [], lastTileUrl: null })
       }
     }
     pumpQueue()

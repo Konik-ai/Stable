@@ -1,5 +1,6 @@
 import type { Route } from '~/api/types'
 import { getRouteDuration } from '~/utils/format'
+import { cachedFetch } from './cache'
 
 export interface GPSPathPoint {
   t: number
@@ -80,7 +81,7 @@ const getDerived = async <T>(route: Route, fn: string): Promise<T[]> => {
   if (!route) return []
   const urls = Array.from({ length: route.maxqlog + 1 }, (_, i) => `${route.url}/${i}/${fn}`)
   const results = urls.map((url) =>
-    fetch(url)
+    cachedFetch(url)
       .then((res) => (res.ok ? (res.json() as T) : undefined))
       .catch((err) => {
         console.error('Error parsing file', url, err)

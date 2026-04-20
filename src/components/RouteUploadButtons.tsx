@@ -8,6 +8,8 @@ import {
   downloadStitchedVideo,
   getAlreadyUploadedFiles,
   uploadAllSegments,
+  type DownloadProgressUpdate,
+  type DownloadVideoStage,
   type DownloadVideoType,
   type FileType,
 } from '~/api/file'
@@ -34,12 +36,28 @@ interface UploadButtonProps {
   onClick: () => void
   icon: IconName
   text: string
+  progress?: number
+  etaSeconds?: number | null
+}
+
+const formatEta = (etaSeconds: number | null | undefined): string | null => {
+  if (etaSeconds == null || etaSeconds <= 0) return null
+  if (etaSeconds < 60) return `${etaSeconds}s`
+  if (etaSeconds < 3600) {
+    const minutes = Math.floor(etaSeconds / 60)
+    const seconds = etaSeconds % 60
+    return `${minutes}m ${seconds}s`
+  }
+  const hours = Math.floor(etaSeconds / 3600)
+  const minutes = Math.floor((etaSeconds % 3600) / 60)
+  return `${hours}h ${minutes}m`
 }
 
 const UploadButton: VoidComponent<UploadButtonProps> = (props) => {
   const icon = () => props.icon
   const state = () => props.state
   const disabled = () => state() === 'loading' || state() === 'success'
+  const etaText = () => formatEta(props.etaSeconds)
 
   const handleUpload = () => {
     if (disabled()) return
@@ -61,7 +79,11 @@ const UploadButton: VoidComponent<UploadButtonProps> = (props) => {
       leading={<Icon class={clsx(state() === 'loading' && 'animate-spin')} name={stateToIcon[state()]} size="20" />}
       color="primary"
     >
-      <span class="flex items-center gap-1 font-mono">{props.text}</span>
+      <span class="flex items-center gap-1 font-mono">
+        {props.state === 'loading' && typeof props.progress === 'number'
+          ? `${props.text} ${Math.round(props.progress)}%${etaText() ? ` • ETA ${etaText()}` : ''}`
+          : props.text}
+      </span>
     </Button>
   )
 }
@@ -82,6 +104,21 @@ const RouteUploadButtons: VoidComponent<RouteUploadButtonsProps> = (props) => {
     dcamera: 'idle',
     ecamera: 'idle',
   })
+  const [downloadProgressStore, setDownloadProgressStore] = createStore<Record<DownloadVideoType, number>>({
+    fcamera: 0,
+    dcamera: 0,
+    ecamera: 0,
+  })
+  const [downloadEtaStore, setDownloadEtaStore] = createStore<Record<DownloadVideoType, number | null>>({
+    fcamera: null,
+    dcamera: null,
+    ecamera: null,
+  })
+  const [downloadStageStore, setDownloadStageStore] = createStore<Record<DownloadVideoType, DownloadVideoStage>>({
+    fcamera: 'processing',
+    dcamera: 'processing',
+    ecamera: 'processing',
+  })
   const [abortController, setAbortController] = createSignal(new AbortController())
 
   createEffect(
@@ -92,6 +129,9 @@ const RouteUploadButtons: VoidComponent<RouteUploadButtonsProps> = (props) => {
         setAbortController(new AbortController())
         setUploadStore(BUTTON_TYPES, 'idle')
         setDownloadStore(['fcamera', 'dcamera', 'ecamera'], 'idle')
+        setDownloadProgressStore(['fcamera', 'dcamera', 'ecamera'], 0)
+        setDownloadEtaStore(['fcamera', 'dcamera', 'ecamera'], null)
+        setDownloadStageStore(['fcamera', 'dcamera', 'ecamera'], 'processing')
       },
     ),
   )
@@ -103,11 +143,13 @@ const RouteUploadButtons: VoidComponent<RouteUploadButtonsProps> = (props) => {
     const { signal } = abortController()
 
     setDownloadStore(video, 'loading')
+    setDownloadProgressStore(video, 0)
+    setDownloadEtaStore(video, null)
+    setDownloadStageStore(video, 'processing')
     try {
       const files = await getAlreadyUploadedFiles(fullname)
       if (signal.aborted) return
-      const available =
-        video === 'fcamera' ? files.cameras : video === 'dcamera' ? files.dcameras : files.ecameras
+      const available = video === 'fcamera' ? files.cameras : video === 'dcamera' ? files.dcameras : files.ecameras
       const present = new Set<number>()
       for (const url of available) {
         const m = url.match(/\/(\d+)\/[^/?]+\.hevc/)
@@ -119,6 +161,9 @@ const RouteUploadButtons: VoidComponent<RouteUploadButtonsProps> = (props) => {
       }
       if (missing.length > 0) {
         setDownloadStore(video, 'error')
+        setDownloadProgressStore(video, 0)
+        setDownloadEtaStore(video, null)
+        setDownloadStageStore(video, 'processing')
         const label = video === 'fcamera' ? 'road' : video === 'dcamera' ? 'driver' : 'wide road'
         const useradminUrl = `${USERADMIN_URL}/?onebox=${fullname}`
         const openUseradmin = confirm(
@@ -129,12 +174,40 @@ const RouteUploadButtons: VoidComponent<RouteUploadButtonsProps> = (props) => {
         if (openUseradmin) window.open(useradminUrl, '_blank', 'noopener')
         return
       }
-      downloadStitchedVideo(fullname, video)
-      setDownloadStore(video, 'idle')
+      await downloadStitchedVideo(fullname, video, {
+        signal,
+        onProgress: ({ percent, etaSeconds }: DownloadProgressUpdate) => {
+          if (signal.aborted) return
+          setDownloadProgressStore(video, percent)
+          setDownloadEtaStore(video, etaSeconds)
+        },
+        onStage: (stage) => {
+          if (signal.aborted) return
+          setDownloadStageStore(video, stage)
+          if (stage === 'downloading') {
+            // Start download percentage from zero once streaming begins.
+            setDownloadProgressStore(video, 0)
+          }
+        },
+      })
+      if (signal.aborted) return
+      setDownloadProgressStore(video, 100)
+      setDownloadEtaStore(video, 0)
+      setDownloadStore(video, 'success')
+      window.setTimeout(() => {
+        if (signal.aborted) return
+        setDownloadStore(video, 'idle')
+        setDownloadProgressStore(video, 0)
+        setDownloadEtaStore(video, null)
+        setDownloadStageStore(video, 'processing')
+      }, 1500)
     } catch (err) {
       if (signal.aborted) return
       console.error('Failed to download', err)
       setDownloadStore(video, 'error')
+      setDownloadProgressStore(video, 0)
+      setDownloadEtaStore(video, null)
+      setDownloadStageStore(video, 'processing')
     }
   }
 
@@ -178,9 +251,17 @@ const RouteUploadButtons: VoidComponent<RouteUploadButtonsProps> = (props) => {
       <div class="grid grid-cols-2 gap-3 w-full">
         {DOWNLOAD_BUTTONS.map((btn) => (
           <UploadButton
-            text={`Download ${btn.text}`}
+            text={
+              downloadStore[btn.video] === 'loading'
+                ? downloadStageStore[btn.video] === 'downloading'
+                  ? 'Downloading'
+                  : 'Processing'
+                : `Download ${btn.text}`
+            }
             icon="download"
             state={downloadStore[btn.video]}
+            progress={downloadProgressStore[btn.video]}
+            etaSeconds={downloadEtaStore[btn.video]}
             onClick={() => handleDownload(btn.video)}
           />
         ))}

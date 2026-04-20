@@ -1,10 +1,14 @@
-import { For, createSignal, createEffect, onMount, onCleanup, Suspense } from 'solid-js'
+import { For, createSignal, createEffect, onMount, onCleanup, Show, Suspense } from 'solid-js'
 import type { VoidComponent } from 'solid-js'
 import clsx from 'clsx'
 
 import type { TimelineEvent } from '~/api/derived'
+import { SPRITE_TILE_HEIGHT, SPRITE_TILE_WIDTH, type RouteSprites } from '~/api/sprites-worker-client'
 import type { Route } from '~/api/types'
 import { getRouteDuration } from '~/utils/format'
+
+const PREVIEW_HEIGHT = 120
+const PREVIEW_WIDTH = PREVIEW_HEIGHT * (SPRITE_TILE_WIDTH / SPRITE_TILE_HEIGHT)
 
 function renderTimelineEvents(route: Route | undefined, events: TimelineEvent[]) {
   if (!route) return
@@ -95,11 +99,43 @@ interface TimelineProps {
   seekTime: number
   updateTime: (time: number) => void
   events: TimelineEvent[]
+  sprites?: RouteSprites
+}
+
+type PreviewTile = {
+  segmentUrl: string
+  tileIndex: number
+  tileCount: number
+}
+
+function getPreviewTile(route: Route, sprites: RouteSprites, offsetMs: number): PreviewTile | null {
+  const n = sprites.segmentUrls.length
+  if (n === 0) return null
+  const starts = route.segment_start_times
+  const ends = route.segment_end_times
+  const routeStart = starts?.[0]
+  if (routeStart === undefined) return null
+
+  for (let i = 0; i < n; i++) {
+    const segStart = (starts[i] ?? routeStart) - routeStart
+    const segEnd = (ends[i] ?? starts[i + 1] ?? segStart + 60_000) - routeStart
+    const segDur = Math.max(1, segEnd - segStart)
+    if (offsetMs < segEnd || i === n - 1) {
+      const tileCount = sprites.segmentTileCounts[i]
+      const segmentUrl = sprites.segmentUrls[i]
+      if (!tileCount || !segmentUrl) return null
+      const fraction = Math.max(0, Math.min(1, (offsetMs - segStart) / segDur))
+      const tileIndex = Math.min(tileCount - 1, Math.floor(fraction * tileCount))
+      return { segmentUrl, tileIndex, tileCount }
+    }
+  }
+  return null
 }
 
 const Timeline: VoidComponent<TimelineProps> = (props) => {
   // TODO: align to first camera frame event
   const [markerOffsetPct, setMarkerOffsetPct] = createSignal(0)
+  const [isScrubbing, setIsScrubbing] = createSignal(false)
   const duration = () => getRouteDuration(props.route)?.asSeconds() ?? 0
 
   let ref!: HTMLDivElement
@@ -115,6 +151,7 @@ const Timeline: VoidComponent<TimelineProps> = (props) => {
     }
 
     const onStart = () => {
+      setIsScrubbing(true)
       const onMouseMove = (ev: MouseEvent) => {
         updateMarker(ev.clientX)
       }
@@ -123,6 +160,7 @@ const Timeline: VoidComponent<TimelineProps> = (props) => {
         updateMarker(ev.touches[0].clientX)
       }
       const onStop = () => {
+        setIsScrubbing(false)
         window.removeEventListener('mousemove', onMouseMove)
         window.removeEventListener('touchmove', onTouchMove)
         window.removeEventListener('mouseup', onStop)
@@ -161,8 +199,31 @@ const Timeline: VoidComponent<TimelineProps> = (props) => {
     else setMarkerOffsetPct((props.seekTime / duration()) * 100)
   })
 
+  const preview = (): PreviewTile | null => {
+    if (!isScrubbing() || !props.route || !props.sprites) return null
+    const offsetMs = (markerOffsetPct() / 100) * duration() * 1000
+    return getPreviewTile(props.route, props.sprites, offsetMs)
+  }
+
   return (
-    <div class="flex flex-col">
+    <div class="relative flex flex-col">
+      <Show when={preview()}>
+        {(p) => (
+          <div
+            class="pointer-events-none absolute bottom-full z-20 mb-3 overflow-hidden rounded-sm border-2 border-white shadow-lg"
+            style={{
+              width: `${PREVIEW_WIDTH}px`,
+              height: `${PREVIEW_HEIGHT}px`,
+              left: `clamp(0px, calc(${markerOffsetPct()}% - ${PREVIEW_WIDTH / 2}px), calc(100% - ${PREVIEW_WIDTH}px))`,
+              'background-image': `url(${p().segmentUrl})`,
+              'background-size': `auto ${PREVIEW_HEIGHT}px`,
+              'background-position-x': `-${p().tileIndex * PREVIEW_WIDTH}px`,
+              'background-position-y': '0',
+              'background-repeat': 'no-repeat',
+            }}
+          />
+        )}
+      </Show>
       <div class="h-1 bg-surface-container-high">
         <div class="h-full bg-white" style={{ width: `calc(${markerOffsetPct()}% + 1px)` }} />
       </div>

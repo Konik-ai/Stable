@@ -18,17 +18,108 @@ import { makeAthenaCall } from '~/api/athena'
 import { parseRouteName } from '~/api/route'
 
 export type DownloadVideoType = 'fcamera' | 'dcamera' | 'ecamera'
+export type DownloadVideoStage = 'processing' | 'downloading'
+export type DownloadProgressUpdate = {
+  percent: number
+  etaSeconds: number | null
+}
 
-export const downloadStitchedVideo = (routeName: Route['fullname'], type: DownloadVideoType): void => {
-  const { dongleId, routeId } = parseRouteName(routeName)
-  const url = `${API_URL}/connectdata/download/${dongleId}/${routeId}/${type}?sig=${accessToken() ?? ''}`
+type DownloadStitchedVideoOptions = {
+  signal?: AbortSignal
+  onProgress?: (update: DownloadProgressUpdate) => void
+  onStage?: (stage: DownloadVideoStage) => void
+}
+
+const clampProgress = (value: number): number => Math.max(0, Math.min(100, Math.round(value)))
+
+const triggerBrowserDownload = (blob: Blob, filename: string): void => {
+  const objectUrl = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  a.href = url
-  a.download = `${dongleId}_${routeId}_${type}.mp4`
+  a.href = objectUrl
+  a.download = filename
   a.rel = 'noopener'
   document.body.appendChild(a)
   a.click()
   a.remove()
+  // Delay revoke slightly so browser download starts reliably across engines.
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+}
+
+export const downloadStitchedVideo = async (
+  routeName: Route['fullname'],
+  type: DownloadVideoType,
+  opts: DownloadStitchedVideoOptions = {},
+): Promise<void> => {
+  const { dongleId, routeId } = parseRouteName(routeName)
+  const url = `${API_URL}/connectdata/download/${dongleId}/${routeId}/${type}?sig=${accessToken() ?? ''}`
+  const filename = `${dongleId}_${routeId}_${type}.mp4`
+  const emitProgress = (percent: number, etaSeconds: number | null) => {
+    opts.onProgress?.({ percent: clampProgress(percent), etaSeconds })
+  }
+
+  opts.onStage?.('processing')
+  let estimatedProgress = 0
+  const processingStartMs = performance.now()
+  emitProgress(estimatedProgress, null)
+  const estimateTimer = window.setInterval(() => {
+    estimatedProgress = Math.min(99, estimatedProgress + (estimatedProgress < 70 ? 2 : estimatedProgress < 90 ? 1 : 0.4))
+    const elapsedSeconds = (performance.now() - processingStartMs) / 1000
+    const speed = elapsedSeconds > 0 ? estimatedProgress / elapsedSeconds : 0
+    const etaSeconds = estimatedProgress >= 99 || speed < 0.1 ? null : Math.max(1, Math.round((100 - estimatedProgress) / speed))
+    emitProgress(estimatedProgress, etaSeconds)
+  }, 500)
+
+  try {
+    const response = await fetch(url, { signal: opts.signal })
+    if (!response.ok) {
+      throw new Error(`Download failed with status ${response.status}`)
+    }
+    opts.onStage?.('downloading')
+    emitProgress(0, null)
+
+    const totalBytesHeader = response.headers.get('content-length')
+    const totalBytes = totalBytesHeader ? Number.parseInt(totalBytesHeader, 10) : NaN
+    const knownTotal = Number.isFinite(totalBytes) && totalBytes > 0
+
+    if (!response.body) {
+      const blob = await response.blob()
+      emitProgress(100, 0)
+      triggerBrowserDownload(blob, filename)
+      return
+    }
+
+    const reader = response.body.getReader()
+    const chunks: Uint8Array[] = []
+    let receivedBytes = 0
+    let fallbackProgress = 0
+    const downloadStartMs = performance.now()
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (!value) continue
+
+      chunks.push(value)
+      receivedBytes += value.byteLength
+
+      if (knownTotal) {
+        const elapsedSeconds = (performance.now() - downloadStartMs) / 1000
+        const bytesPerSecond = elapsedSeconds > 0 ? receivedBytes / elapsedSeconds : 0
+        const remainingBytes = totalBytes - receivedBytes
+        const etaSeconds = bytesPerSecond > 1 && remainingBytes > 0 ? Math.max(1, Math.round(remainingBytes / bytesPerSecond)) : 0
+        emitProgress((receivedBytes / totalBytes) * 100, etaSeconds)
+      } else {
+        fallbackProgress = Math.min(99, fallbackProgress + 1)
+        emitProgress(fallbackProgress, null)
+      }
+    }
+
+    const blob = new Blob(chunks, { type: 'video/mp4' })
+    emitProgress(100, 0)
+    triggerBrowserDownload(blob, filename)
+  } finally {
+    window.clearInterval(estimateTimer)
+  }
 }
 
 export const FileTypes = {
