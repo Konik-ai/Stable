@@ -191,8 +191,22 @@ const RouteList: VoidComponent<{ dongleId: string }> = (props) => {
     queryKey: ['device-routes', props.dongleId],
     queryFn: ({ pageParam }) => fetcher<Route[]>(`/v1/devices/${props.dongleId}/routes?limit=${PAGE_SIZE}&offset=${pageParam}`),
     initialPageParam: 0,
-    getNextPageParam: (lastPage: Route[], _allPages: Route[][], lastPageParam: number) =>
-      lastPage.length < PAGE_SIZE ? undefined : lastPageParam + PAGE_SIZE,
+    // Keep paginating until the server returns an empty page.
+    // Some backend deployments may return short pages (e.g. due post-filtering)
+    // even when more routes exist at higher offsets.
+    getNextPageParam: (lastPage: Route[], allPages: Route[][], lastPageParam: number) => {
+      if (lastPage.length === 0) return undefined
+
+      // Stop if this page contributes no new routes to avoid duplicate-page loops.
+      const previous = new Set<string>()
+      for (const page of allPages.slice(0, -1)) {
+        for (const route of page) previous.add(route.fullname)
+      }
+      const contributesNewRoutes = lastPage.some((route) => !previous.has(route.fullname))
+      if (!contributesNewRoutes) return undefined
+
+      return lastPageParam + PAGE_SIZE
+    },
     staleTime: 60_000,
   }))
 
@@ -221,9 +235,13 @@ const RouteList: VoidComponent<{ dongleId: string }> = (props) => {
     const pages = routesQuery.data?.pages
     if (!pages) return []
     const result: ListItem[] = []
+    const seenRoutes = new Set<string>()
     let prev: string | null = null
     for (const page of pages) {
       for (const route of page) {
+        if (seenRoutes.has(route.fullname)) continue
+        seenRoutes.add(route.fullname)
+
         const header = getDayHeader(route)
         if (header !== prev) {
           result.push({ kind: 'header', key: `h-${header}`, text: header })
